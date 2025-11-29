@@ -1,0 +1,23 @@
+plugins {
+	id 'java-library'
+}
+
+description = 'SecureHR Logging SDK - Testing Utilities'
+
+dependencies {
+	// Core module
+	api project(':secure-log-core')
+
+	// AssertJ for fluent assertions
+	api 'org.assertj:assertj-core:3.27.3'
+
+	// JUnit 5
+	api 'org.junit.jupiter:junit-jupiter:5.11.4'
+
+	// Mockito
+	api 'org.mockito:mockito-core:5.14.2'
+
+	// Lombok
+	compileOnly 'org.projectlombok:lombok:1.18.36'
+	annotationProcessor 'org.projectlombok:lombok:1.18.36'
+}

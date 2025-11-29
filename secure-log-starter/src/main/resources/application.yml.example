@@ -1,0 +1,78 @@
+# SecureHR Logging SDK Configuration Example
+# Copy this to application.yml and customize
+
+secure-hr:
+  logging:
+    # Enable/disable SDK
+    enabled: true
+
+    # Logging mode: SYNC, ASYNC, FALLBACK
+    mode: ASYNC
+
+    # Ring buffer size for async logging
+    buffer-size: 8192
+
+    # PII Masking Configuration
+    pii-masking:
+      enabled: true
+      patterns:
+        - rrn          # Resident Registration Number
+        - credit_card  # Credit card numbers
+        - password     # Passwords
+        - ssn          # Social Security Number
+
+    # Security Configuration
+    security:
+      # Enable encryption
+      encryption-enabled: true
+
+      # Enable Merkle Tree integrity
+      integrity-enabled: true
+
+      # KMS endpoint for key management
+      kms-endpoint: "https://kms.internal/v1/keys"
+
+      # KMS timeout in milliseconds
+      kms-timeout-ms: 2000
+
+    # Semantic Deduplication
+    deduplication-enabled: true
+    deduplication-window-ms: 1000
+
+    # Kafka Configuration (primary transport)
+    kafka-bootstrap-servers: "localhost:9092"
+    kafka-topic: "secure-hr-logs"
+    kafka-retries: 3
+
+    # Fallback Configuration (circuit breaker)
+    fallback-directory: "logs/fallback"
+
+# Profile-specific configuration
+---
+spring:
+  config:
+    activate:
+      on-profile: prod
+
+secure-hr:
+  logging:
+    mode: ASYNC
+    security:
+      encryption-enabled: true
+      integrity-enabled: true
+      kms-endpoint: "https://kms.production.internal/v1/keys"
+    kafka-bootstrap-servers: "kafka-prod-01:9092,kafka-prod-02:9092,kafka-prod-03:9092"
+
+---
+spring:
+  config:
+    activate:
+      on-profile: dev
+
+secure-hr:
+  logging:
+    mode: ASYNC
+    security:
+      encryption-enabled: false  # Disabled for development
+      integrity-enabled: true
+    kafka-bootstrap-servers: "localhost:9092"

@@ -1,38 +1,35 @@
 plugins {
-	id 'java'
-	id 'org.springframework.boot' version '3.5.8'
-	id 'io.spring.dependency-management' version '1.1.7'
+	id 'org.springframework.boot' version '3.5.8' apply false
+	id 'io.spring.dependency-management' version '1.1.7' apply false
+	id 'com.gradleup.shadow' version '8.3.5' apply false
 }
 
 group = 'io.github.hongjungwan'
-version = '0.0.1-SNAPSHOT'
-description = 'SDK for Blackbox Logging'
+version = '8.0.0-RELEASE'
+description = 'SecureHR Logging SDK - Multi-Module Root'
 
-java {
-	toolchain {
-		languageVersion = JavaLanguageVersion.of(21)
+subprojects {
+	apply plugin: 'java'
+
+	group = rootProject.group
+	version = rootProject.version
+
+	java {
+		toolchain {
+			languageVersion = JavaLanguageVersion.of(21)
+		}
 	}
-}
 
-configurations {
-	compileOnly {
-		extendsFrom annotationProcessor
+	repositories {
+		mavenCentral()
 	}
-}
 
-repositories {
-	mavenCentral()
-}
+	tasks.withType(JavaCompile) {
+		options.encoding = 'UTF-8'
+		options.compilerArgs << '-parameters'
+	}
 
-dependencies {
-	implementation 'org.springframework.boot:spring-boot-starter-web'
-	compileOnly 'org.projectlombok:lombok'
-	annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
-	annotationProcessor 'org.projectlombok:lombok'
-	testImplementation 'org.springframework.boot:spring-boot-starter-test'
-	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
-}
-
-tasks.named('test') {
-	useJUnitPlatform()
+	tasks.withType(Test) {
+		useJUnitPlatform()
+	}
 }

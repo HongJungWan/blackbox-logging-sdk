@@ -1,1 +1,5 @@
 rootProject.name = 'blackbox-logging-sdk'
+
+include 'secure-log-core'
+include 'secure-log-starter'
+include 'secure-log-test'

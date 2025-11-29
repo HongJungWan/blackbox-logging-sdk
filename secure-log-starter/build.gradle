@@ -1,0 +1,33 @@
+plugins {
+	id 'java-library'
+	id 'org.springframework.boot' apply false
+	id 'io.spring.dependency-management'
+}
+
+description = 'SecureHR Logging SDK - Spring Boot Starter'
+
+dependencyManagement {
+	imports {
+		mavenBom org.springframework.boot.gradle.plugin.SpringBootPlugin.BOM_COORDINATES
+	}
+}
+
+dependencies {
+	// Core module (shaded)
+	api project(':secure-log-core')
+
+	// Spring Boot AutoConfiguration
+	api 'org.springframework.boot:spring-boot-starter'
+	annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
+	annotationProcessor 'org.springframework.boot:spring-boot-autoconfigure-processor'
+
+	// Lombok
+	compileOnly 'org.projectlombok:lombok'
+	annotationProcessor 'org.projectlombok:lombok'
+
+	// Testing
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+}
+
+// Generate spring-configuration-metadata.json
+compileJava.inputs.files(processResources)

@@ -1,7 +1,28 @@
 {
   "permissions": {
     "allow": [
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "Bash(./gradlew clean build:*)",
+      "Bash(where:*)",
+      "Bash(java:*)",
+      "Bash(export JAVA_HOME=\"/c/Program Files/Java/jdk-17\")",
+      "Bash(echo:*)",
+      "Bash(\"/c/Program Files/Amazon Corretto/jdk17/bin/java\" -version)",
+      "Bash(\"/c/Program Files/Java/jdk-17/bin/java\" -version)",
+      "Bash(curl:*)",
+      "Bash(tar:*)",
+      "Bash(./amazon-corretto-21.0.9.11.1-linux-x64/bin/java:*)",
+      "Bash(unzip:*)",
+      "Bash(./jdk21.0.9_10/bin/java:*)",
+      "Bash(export JAVA_HOME:*)",
+      "Bash(export PATH=\"$JAVA_HOME/bin:$PATH\")",
+      "Bash(./gradlew:*)",
+      "Bash(~/tools/jdk21.0.9_10/bin/java:*)",
+      "Bash(unset:*)",
+      "Bash(export JAVA_HOME=\"$HOME/tools/jdk21.0.9_10\")",
+      "Bash(cmd //c \"rmdir /s /q C:\\Users\\Hong\\Desktop\\blackbox-logging-sdk\\jdk21.0.9_10\")",
+      "Bash(/c/Windows/System32/cmd.exe /c \"rmdir /s /q C:\\Users\\Hong\\Desktop\\blackbox-logging-sdk\\jdk21.0.9_10\")",
+      "Bash(export JAVA_HOME=\"C:/Users/Hong/tools/jdk21.0.9_10\")"
     ],
     "deny": [],
     "ask": []

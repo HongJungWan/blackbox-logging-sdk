@@ -1,0 +1,59 @@
+plugins {
+	id 'java-library'
+	id 'com.gradleup.shadow'
+}
+
+description = 'SecureHR Logging SDK - Core Library (Zero-Dependency with Shading)'
+
+dependencies {
+	// Logging framework integration
+	api 'ch.qos.logback:logback-classic:1.5.15'
+	api 'org.slf4j:slf4j-api:2.0.16'
+
+	// JSON serialization (will be shaded)
+	implementation 'com.fasterxml.jackson.core:jackson-databind:2.18.2'
+	implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.18.2'
+
+	// Compression (will be shaded)
+	implementation 'com.github.luben:zstd-jni:1.5.6-3'
+
+	// Lock-free data structures (will be shaded)
+	implementation 'org.jctools:jctools-core:4.0.5'
+
+	// Cache for deduplication (will be shaded)
+	implementation 'com.github.ben-manes.caffeine:caffeine:3.1.8'
+
+	// Security/Crypto
+	implementation 'org.bouncycastle:bcprov-jdk18on:1.79'
+
+	// Lombok for development
+	compileOnly 'org.projectlombok:lombok:1.18.36'
+	annotationProcessor 'org.projectlombok:lombok:1.18.36'
+
+	// Testing
+	testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
+	testImplementation 'org.assertj:assertj-core:3.27.3'
+	testImplementation 'org.mockito:mockito-core:5.14.2'
+}
+
+shadowJar {
+	archiveClassifier.set('')
+
+	// Relocate dependencies to avoid classpath conflicts
+	relocate 'com.fasterxml.jackson', 'io.github.hongjungwan.blackbox.internal.jackson'
+	relocate 'com.github.luben.zstd', 'io.github.hongjungwan.blackbox.internal.zstd'
+	relocate 'org.jctools', 'io.github.hongjungwan.blackbox.internal.jctools'
+	relocate 'com.github.benmanes.caffeine', 'io.github.hongjungwan.blackbox.internal.caffeine'
+	relocate 'org.bouncycastle', 'io.github.hongjungwan.blackbox.internal.bouncycastle'
+
+	// Minimize JAR size by removing unused classes
+	minimize()
+
+	// Exclude signatures to avoid security exceptions
+	exclude 'META-INF/*.SF'
+	exclude 'META-INF/*.DSA'
+	exclude 'META-INF/*.RSA'
+}
+
+// Make shadowJar the default artifact
+tasks.build.dependsOn tasks.shadowJar
