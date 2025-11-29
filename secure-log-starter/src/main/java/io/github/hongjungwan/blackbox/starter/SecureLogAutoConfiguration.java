@@ -44,9 +44,9 @@ public class SecureLogAutoConfiguration {
                 .kmsTimeoutMs(properties.getSecurity().getKmsTimeoutMs())
                 .deduplicationEnabled(properties.isDeduplicationEnabled())
                 .deduplicationWindowMs(properties.getDeduplicationWindowMs())
-                .kafkaBootstrapServers(properties.getKafkaBootstrapServers())
-                .kafkaTopic(properties.getKafkaTopic())
-                .kafkaRetries(properties.getKafkaRetries())
+                .kafkaBootstrapServers(properties.getKafka().getBootstrapServers())
+                .kafkaTopic(properties.getKafka().getTopic())
+                .kafkaRetries(properties.getKafka().getRetries())
                 .fallbackDirectory(properties.getFallbackDirectory())
                 .integrityEnabled(properties.getSecurity().isIntegrityEnabled())
                 .build();

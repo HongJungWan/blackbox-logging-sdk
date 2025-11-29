@@ -14,6 +14,7 @@ import java.security.SecureRandom;
 import java.security.Security;
 import java.util.Base64;
 import java.util.Map;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * FEAT-04: Envelope Encryption (DEK + KEK)
@@ -42,6 +43,7 @@ public class EnvelopeEncryption {
     private final SecureLogConfig config;
     private final KmsClient kmsClient;
     private final SecureRandom secureRandom;
+    private final ReentrantLock rotationLock = new ReentrantLock();
 
     // Current DEK - rotated periodically
     private volatile SecretKey currentDek;
@@ -164,11 +166,14 @@ public class EnvelopeEncryption {
 
     /**
      * Rotate DEK if rotation interval has passed
+     * CRITICAL: Uses ReentrantLock instead of synchronized (Virtual Thread compatible)
      */
     private void rotateDekIfNeeded() {
         long now = System.currentTimeMillis();
         if (now - dekCreationTime > DEK_ROTATION_INTERVAL_MS) {
-            synchronized (this) {
+            rotationLock.lock();
+            try {
+                // Double-check after acquiring lock
                 if (now - dekCreationTime > DEK_ROTATION_INTERVAL_MS) {
                     // Crypto-shredding: destroy old DEK
                     SecretKey oldDek = currentDek;
@@ -180,6 +185,8 @@ public class EnvelopeEncryption {
 
                     log.info("DEK rotated successfully");
                 }
+            } finally {
+                rotationLock.unlock();
             }
         }
     }

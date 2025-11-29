@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Suppress noisy logs during tests -->
+    <logger name="org.apache.kafka" level="WARN"/>
+    <logger name="software.amazon.awssdk" level="WARN"/>
+    <logger name="org.testcontainers" level="INFO"/>
+
+    <!-- SDK logs at DEBUG for testing -->
+    <logger name="io.github.hongjungwan.blackbox" level="DEBUG"/>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>

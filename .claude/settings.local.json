@@ -22,7 +22,10 @@
       "Bash(export JAVA_HOME=\"$HOME/tools/jdk21.0.9_10\")",
       "Bash(cmd //c \"rmdir /s /q C:\\Users\\Hong\\Desktop\\blackbox-logging-sdk\\jdk21.0.9_10\")",
       "Bash(/c/Windows/System32/cmd.exe /c \"rmdir /s /q C:\\Users\\Hong\\Desktop\\blackbox-logging-sdk\\jdk21.0.9_10\")",
-      "Bash(export JAVA_HOME=\"C:/Users/Hong/tools/jdk21.0.9_10\")"
+      "Bash(export JAVA_HOME=\"C:/Users/Hong/tools/jdk21.0.9_10\")",
+      "Bash(xargs ls:*)",
+      "Bash(find:*)",
+      "Bash(export JAVA_HOME=\"$HOME/tools/jdk-21.0.9+10\")"
     ],
     "deny": [],
     "ask": []

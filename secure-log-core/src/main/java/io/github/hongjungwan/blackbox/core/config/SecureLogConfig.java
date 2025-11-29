@@ -43,15 +43,37 @@ public class SecureLogConfig {
     private final boolean encryptionEnabled = true;
 
     /**
-     * KMS endpoint for key management
+     * KMS endpoint for key management (legacy, use kmsKeyId for AWS KMS)
      */
     private final String kmsEndpoint;
+
+    /**
+     * AWS KMS Key ID or ARN
+     */
+    private final String kmsKeyId;
+
+    /**
+     * AWS KMS Region (e.g., ap-northeast-2)
+     */
+    @Builder.Default
+    private final String kmsRegion = "ap-northeast-2";
+
+    /**
+     * AWS IAM Role ARN for cross-account access (optional)
+     */
+    private final String kmsRoleArn;
 
     /**
      * KMS timeout in milliseconds
      */
     @Builder.Default
     private final int kmsTimeoutMs = 2000;
+
+    /**
+     * Use embedded fallback key when KMS is unavailable (NOT for production)
+     */
+    @Builder.Default
+    private final boolean kmsFallbackEnabled = true;
 
     /**
      * Enable semantic deduplication
@@ -83,6 +105,42 @@ public class SecureLogConfig {
     private final int kafkaRetries = 3;
 
     /**
+     * Kafka acks configuration: "all", "1", "0"
+     */
+    @Builder.Default
+    private final String kafkaAcks = "all";
+
+    /**
+     * Kafka batch size in bytes
+     */
+    @Builder.Default
+    private final int kafkaBatchSize = 16384;
+
+    /**
+     * Kafka linger time in milliseconds
+     */
+    @Builder.Default
+    private final int kafkaLingerMs = 1;
+
+    /**
+     * Kafka compression type: none, gzip, snappy, lz4, zstd
+     */
+    @Builder.Default
+    private final String kafkaCompressionType = "zstd";
+
+    /**
+     * Kafka max block time in milliseconds (send() blocking time)
+     */
+    @Builder.Default
+    private final long kafkaMaxBlockMs = 5000;
+
+    /**
+     * Kafka security protocol: PLAINTEXT, SSL, SASL_PLAINTEXT, SASL_SSL
+     */
+    @Builder.Default
+    private final String kafkaSecurityProtocol = "PLAINTEXT";
+
+    /**
      * Fallback directory for circuit breaker
      */
     @Builder.Default
@@ -104,6 +162,11 @@ public class SecureLogConfig {
         return SecureLogConfig.builder().build();
     }
 
+    /**
+     * Production configuration with legacy KMS endpoint
+     * @deprecated Use {@link #awsKmsProductionConfig(String, String, String)} for AWS KMS
+     */
+    @Deprecated
     public static SecureLogConfig productionConfig(String kmsEndpoint, String kafkaBootstrapServers) {
         return SecureLogConfig.builder()
                 .mode(LoggingMode.ASYNC)
@@ -113,6 +176,26 @@ public class SecureLogConfig {
                 .piiMaskingEnabled(true)
                 .integrityEnabled(true)
                 .deduplicationEnabled(true)
+                .kmsFallbackEnabled(false)
+                .build();
+    }
+
+    /**
+     * Production configuration with AWS KMS
+     */
+    public static SecureLogConfig awsKmsProductionConfig(String kmsKeyId, String kmsRegion, String kafkaBootstrapServers) {
+        return SecureLogConfig.builder()
+                .mode(LoggingMode.ASYNC)
+                .kmsKeyId(kmsKeyId)
+                .kmsRegion(kmsRegion)
+                .kafkaBootstrapServers(kafkaBootstrapServers)
+                .kafkaAcks("all")
+                .kafkaCompressionType("zstd")
+                .encryptionEnabled(true)
+                .piiMaskingEnabled(true)
+                .integrityEnabled(true)
+                .deduplicationEnabled(true)
+                .kmsFallbackEnabled(false)
                 .build();
     }
 }

@@ -1,5 +1,8 @@
 package io.github.hongjungwan.blackbox.core.domain;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;
 import lombok.Builder;
 import lombok.Getter;
 
@@ -12,6 +15,7 @@ import java.util.Map;
  */
 @Getter
 @Builder
+@JsonDeserialize(builder = LogEntry.LogEntryBuilder.class)
 public class LogEntry {
     /**
      * Timestamp in milliseconds since epoch
@@ -110,5 +114,11 @@ public class LogEntry {
             return event.getThrowableProxy().getClassName() + ": " + event.getThrowableProxy().getMessage();
         }
         return null;
+    }
+
+    @JsonPOJOBuilder(withPrefix = "")
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class LogEntryBuilder {
+        // Lombok generates the builder methods
     }
 }

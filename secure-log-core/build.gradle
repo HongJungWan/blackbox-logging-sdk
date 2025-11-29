@@ -26,6 +26,15 @@ dependencies {
 	// Security/Crypto
 	implementation 'org.bouncycastle:bcprov-jdk18on:1.79'
 
+	// Kafka client (will be shaded)
+	implementation 'org.apache.kafka:kafka-clients:3.7.0'
+
+	// AWS KMS SDK (will be shaded)
+	implementation platform('software.amazon.awssdk:bom:2.25.0')
+	implementation 'software.amazon.awssdk:kms'
+	implementation 'software.amazon.awssdk:sts'
+	implementation 'software.amazon.awssdk:url-connection-client'
+
 	// Lombok for development
 	compileOnly 'org.projectlombok:lombok:1.18.36'
 	annotationProcessor 'org.projectlombok:lombok:1.18.36'
@@ -34,6 +43,20 @@ dependencies {
 	testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
 	testImplementation 'org.assertj:assertj-core:3.27.3'
 	testImplementation 'org.mockito:mockito-core:5.14.2'
+
+	// Testcontainers for integration tests
+	testImplementation 'org.testcontainers:testcontainers:1.19.7'
+	testImplementation 'org.testcontainers:kafka:1.19.7'
+	testImplementation 'org.testcontainers:localstack:1.19.7'
+	testImplementation 'org.testcontainers:junit-jupiter:1.19.7'
+
+	// JMH for performance benchmarks
+	testImplementation 'org.openjdk.jmh:jmh-core:1.37'
+	testAnnotationProcessor 'org.openjdk.jmh:jmh-generator-annprocess:1.37'
+
+	// Test Lombok support
+	testCompileOnly 'org.projectlombok:lombok:1.18.36'
+	testAnnotationProcessor 'org.projectlombok:lombok:1.18.36'
 }
 
 shadowJar {
@@ -45,6 +68,12 @@ shadowJar {
 	relocate 'org.jctools', 'io.github.hongjungwan.blackbox.internal.jctools'
 	relocate 'com.github.benmanes.caffeine', 'io.github.hongjungwan.blackbox.internal.caffeine'
 	relocate 'org.bouncycastle', 'io.github.hongjungwan.blackbox.internal.bouncycastle'
+
+	// Kafka client relocation
+	relocate 'org.apache.kafka', 'io.github.hongjungwan.blackbox.internal.kafka'
+
+	// AWS SDK relocation
+	relocate 'software.amazon.awssdk', 'io.github.hongjungwan.blackbox.internal.awssdk'
 
 	// Minimize JAR size by removing unused classes
 	minimize()

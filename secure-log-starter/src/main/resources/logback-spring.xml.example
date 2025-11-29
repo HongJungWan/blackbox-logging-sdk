@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    SecureHR Logging SDK - Logback Configuration Example
+
+    Copy this file to your project's src/main/resources/logback-spring.xml
+    and customize as needed.
+-->
+<configuration scan="true" scanPeriod="30 seconds">
+
+    <!-- Define spring properties for dynamic configuration -->
+    <springProperty scope="context" name="kafkaBootstrap"
+                    source="secure-hr.logging.kafka.bootstrap-servers"
+                    defaultValue="localhost:9092"/>
+    <springProperty scope="context" name="appName"
+                    source="spring.application.name"
+                    defaultValue="secure-hr-app"/>
+
+    <!-- Console Appender for development -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- SecureHR Virtual Thread Async Appender -->
+    <appender name="SECURE" class="io.github.hongjungwan.blackbox.core.appender.VirtualAsyncAppender">
+        <!-- Buffer size for async queue -->
+        <bufferSize>8192</bufferSize>
+        <!-- Max batch size for processing -->
+        <maxBatchSize>100</maxBatchSize>
+    </appender>
+
+    <!-- File Appender for fallback/debugging -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>logs/${appName}.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>logs/${appName}.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>30</maxHistory>
+            <totalSizeCap>3GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- Suppress noisy framework logs -->
+    <logger name="org.apache.kafka" level="WARN"/>
+    <logger name="software.amazon.awssdk" level="WARN"/>
+    <logger name="org.springframework" level="INFO"/>
+
+    <!-- SecureHR SDK debug logging (set to DEBUG for troubleshooting) -->
+    <logger name="io.github.hongjungwan.blackbox" level="INFO"/>
+
+    <!-- Profile-specific configurations -->
+
+    <!-- Development profile: Console + File -->
+    <springProfile name="default,dev,local">
+        <root level="DEBUG">
+            <appender-ref ref="CONSOLE"/>
+            <appender-ref ref="FILE"/>
+        </root>
+    </springProfile>
+
+    <!-- Production profile: SecureHR Async + File backup -->
+    <springProfile name="prod,production">
+        <root level="INFO">
+            <appender-ref ref="SECURE"/>
+            <appender-ref ref="FILE"/>
+        </root>
+    </springProfile>
+
+    <!-- Staging profile: All appenders for testing -->
+    <springProfile name="staging,test">
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+            <appender-ref ref="SECURE"/>
+            <appender-ref ref="FILE"/>
+        </root>
+    </springProfile>
+
+</configuration>

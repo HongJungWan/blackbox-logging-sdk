@@ -51,19 +51,9 @@ public class SecureLogProperties {
     private long deduplicationWindowMs = 1000;
 
     /**
-     * Kafka bootstrap servers
+     * Kafka configuration
      */
-    private String kafkaBootstrapServers;
-
-    /**
-     * Kafka topic
-     */
-    private String kafkaTopic = "secure-hr-logs";
-
-    /**
-     * Kafka retry attempts
-     */
-    private int kafkaRetries = 3;
+    private KafkaProperties kafka = new KafkaProperties();
 
     /**
      * Fallback directory for circuit breaker
@@ -81,6 +71,23 @@ public class SecureLogProperties {
         private boolean encryptionEnabled = true;
         private boolean integrityEnabled = true;
         private String kmsEndpoint;
+        private String kmsKeyId;
+        private String kmsRegion = "ap-northeast-2";
+        private String kmsRoleArn;
         private int kmsTimeoutMs = 2000;
+        private boolean kmsFallbackEnabled = true;
+    }
+
+    @Data
+    public static class KafkaProperties {
+        private String bootstrapServers;
+        private String topic = "secure-hr-logs";
+        private int retries = 3;
+        private String acks = "all";
+        private int batchSize = 16384;
+        private int lingerMs = 1;
+        private String compressionType = "zstd";
+        private long maxBlockMs = 5000;
+        private String securityProtocol = "PLAINTEXT";
     }
 }
