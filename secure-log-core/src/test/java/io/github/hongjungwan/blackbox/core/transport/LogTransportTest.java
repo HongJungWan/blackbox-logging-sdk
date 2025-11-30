@@ -1,8 +1,9 @@
 package io.github.hongjungwan.blackbox.core.transport;
 
-import io.github.hongjungwan.blackbox.core.config.SecureLogConfig;
-import io.github.hongjungwan.blackbox.core.domain.LogEntry;
-import io.github.hongjungwan.blackbox.core.serialization.LogSerializer;
+import io.github.hongjungwan.blackbox.api.config.SecureLogConfig;
+import io.github.hongjungwan.blackbox.api.domain.LogEntry;
+import io.github.hongjungwan.blackbox.core.internal.LogSerializer;
+import io.github.hongjungwan.blackbox.core.internal.LogTransport;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
 

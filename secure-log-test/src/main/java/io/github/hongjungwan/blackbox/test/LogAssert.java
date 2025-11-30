@@ -1,6 +1,6 @@
 package io.github.hongjungwan.blackbox.test;
 
-import io.github.hongjungwan.blackbox.core.domain.LogEntry;
+import io.github.hongjungwan.blackbox.api.domain.LogEntry;
 import org.assertj.core.api.AbstractAssert;
 
 import java.util.Map;

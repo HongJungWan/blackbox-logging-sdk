@@ -1,6 +1,6 @@
 package io.github.hongjungwan.blackbox.starter;
 
-import io.github.hongjungwan.blackbox.core.config.SecureLogConfig;
+import io.github.hongjungwan.blackbox.api.config.SecureLogConfig;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 

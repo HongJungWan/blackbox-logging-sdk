@@ -26,7 +26,11 @@
       "Bash(xargs ls:*)",
       "Bash(find:*)",
       "Bash(export JAVA_HOME=\"$HOME/tools/jdk-21.0.9+10\")",
-      "WebSearch"
+      "WebSearch",
+      "Bash(export JAVA_HOME=\"/c/Users/Hong/tools/jdk21.0.9_10\":*)",
+      "Bash(cat:*)",
+      "Bash(export JAVA_HOME=\"/c/Users/Hong/tools/jdk-21.0.9+10\")",
+      "Bash({} ;)"
     ],
     "deny": [],
     "ask": []

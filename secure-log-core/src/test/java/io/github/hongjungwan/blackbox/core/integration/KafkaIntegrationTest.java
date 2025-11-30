@@ -1,7 +1,7 @@
 package io.github.hongjungwan.blackbox.core.integration;
 
-import io.github.hongjungwan.blackbox.core.config.SecureLogConfig;
-import io.github.hongjungwan.blackbox.core.transport.KafkaProducer;
+import io.github.hongjungwan.blackbox.api.config.SecureLogConfig;
+import io.github.hongjungwan.blackbox.core.internal.KafkaProducer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;

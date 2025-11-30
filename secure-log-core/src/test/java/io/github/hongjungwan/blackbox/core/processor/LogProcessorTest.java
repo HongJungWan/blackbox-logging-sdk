@@ -1,14 +1,15 @@
 package io.github.hongjungwan.blackbox.core.processor;
 
-import io.github.hongjungwan.blackbox.core.config.SecureLogConfig;
-import io.github.hongjungwan.blackbox.core.deduplication.SemanticDeduplicator;
-import io.github.hongjungwan.blackbox.core.domain.LogEntry;
-import io.github.hongjungwan.blackbox.core.integrity.MerkleChain;
-import io.github.hongjungwan.blackbox.core.masking.PiiMasker;
+import io.github.hongjungwan.blackbox.api.config.SecureLogConfig;
+import io.github.hongjungwan.blackbox.api.domain.LogEntry;
+import io.github.hongjungwan.blackbox.core.internal.LogProcessor;
+import io.github.hongjungwan.blackbox.core.internal.SemanticDeduplicator;
+import io.github.hongjungwan.blackbox.core.internal.MerkleChain;
+import io.github.hongjungwan.blackbox.core.internal.LogSerializer;
+import io.github.hongjungwan.blackbox.core.internal.LogTransport;
+import io.github.hongjungwan.blackbox.core.security.PiiMasker;
 import io.github.hongjungwan.blackbox.core.security.EnvelopeEncryption;
 import io.github.hongjungwan.blackbox.core.security.KmsClient;
-import io.github.hongjungwan.blackbox.core.serialization.LogSerializer;
-import io.github.hongjungwan.blackbox.core.transport.LogTransport;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mock;

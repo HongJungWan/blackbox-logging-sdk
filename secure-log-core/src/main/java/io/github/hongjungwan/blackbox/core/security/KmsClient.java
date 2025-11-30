@@ -1,6 +1,6 @@
 package io.github.hongjungwan.blackbox.core.security;
 
-import io.github.hongjungwan.blackbox.core.config.SecureLogConfig;
+import io.github.hongjungwan.blackbox.api.config.SecureLogConfig;
 import lombok.extern.slf4j.Slf4j;
 import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
@@ -21,10 +21,11 @@ import java.util.Arrays;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * AWS KMS Client for Key Management
- * Retrieves KEK (Key Encryption Key) from AWS KMS
+ * AWS KMS Client for Key Management.
  *
- * CRITICAL: Uses ReentrantLock instead of synchronized (Virtual Thread compatible)
+ * <p>Retrieves KEK (Key Encryption Key) from AWS KMS.</p>
+ *
+ * <p>CRITICAL: Uses ReentrantLock instead of synchronized (Virtual Thread compatible)</p>
  */
 @Slf4j
 public class KmsClient implements AutoCloseable {
@@ -89,8 +90,8 @@ public class KmsClient implements AutoCloseable {
     }
 
     /**
-     * Get KEK from KMS (with caching)
-     * Uses ReentrantLock instead of synchronized for Virtual Thread compatibility
+     * Get KEK from KMS (with caching).
+     * Uses ReentrantLock instead of synchronized for Virtual Thread compatibility.
      */
     public SecretKey getKek() {
         // Check cache first
@@ -142,7 +143,7 @@ public class KmsClient implements AutoCloseable {
     }
 
     /**
-     * Fetch KEK from AWS KMS using GenerateDataKey
+     * Fetch KEK from AWS KMS using GenerateDataKey.
      */
     private SecretKey fetchKekFromAwsKms() {
         GenerateDataKeyResponse response = awsKmsClient.generateDataKey(
@@ -164,14 +165,10 @@ public class KmsClient implements AutoCloseable {
     }
 
     /**
-     * Encrypt a data key using AWS KMS
-     *
-     * @param dataKey the plaintext data key
-     * @return encrypted data key
+     * Encrypt a data key using AWS KMS.
      */
     public byte[] encryptDataKey(byte[] dataKey) {
         if (!isAwsKmsConfigured) {
-            // Fallback: return the key as-is (NOT secure)
             log.warn("Skipping KMS encryption - not configured");
             return dataKey;
         }
@@ -186,14 +183,10 @@ public class KmsClient implements AutoCloseable {
     }
 
     /**
-     * Decrypt a data key using AWS KMS
-     *
-     * @param encryptedDataKey the encrypted data key
-     * @return plaintext data key
+     * Decrypt a data key using AWS KMS.
      */
     public byte[] decryptDataKey(byte[] encryptedDataKey) {
         if (!isAwsKmsConfigured) {
-            // Fallback: return the key as-is (NOT secure)
             log.warn("Skipping KMS decryption - not configured");
             return encryptedDataKey;
         }
@@ -208,8 +201,8 @@ public class KmsClient implements AutoCloseable {
     }
 
     /**
-     * Generate fallback KEK for development/testing
-     * WARNING: NOT secure for production use
+     * Generate fallback KEK for development/testing.
+     * WARNING: NOT secure for production use.
      */
     private SecretKey generateFallbackKek() {
         try {
@@ -222,28 +215,24 @@ public class KmsClient implements AutoCloseable {
     }
 
     /**
-     * Rotate KEK (trigger key rotation in AWS KMS)
+     * Rotate KEK (trigger key rotation in AWS KMS).
      */
     public void rotateKek() {
         lock.lock();
         try {
-            // Invalidate cache
             cachedKek = null;
             kekCacheTime = 0;
 
             if (isAwsKmsConfigured) {
-                // Note: AWS KMS automatic rotation can be enabled via console/API
-                // This just invalidates our cache to fetch new key material
                 log.info("KEK cache invalidated. Next getKek() will fetch fresh key from AWS KMS");
             }
-
         } finally {
             lock.unlock();
         }
     }
 
     /**
-     * Invalidate the cached KEK
+     * Invalidate the cached KEK.
      */
     public void invalidateCache() {
         lock.lock();
@@ -256,7 +245,7 @@ public class KmsClient implements AutoCloseable {
     }
 
     /**
-     * Check if AWS KMS is configured
+     * Check if AWS KMS is configured.
      */
     public boolean isAwsKmsConfigured() {
         return isAwsKmsConfigured;
@@ -282,7 +271,7 @@ public class KmsClient implements AutoCloseable {
     }
 
     /**
-     * Exception thrown when KMS operation fails
+     * Exception thrown when KMS operation fails.
      */
     public static class KmsException extends RuntimeException {
         public KmsException(String message) {

@@ -1,6 +1,6 @@
 package io.github.hongjungwan.blackbox.core.integration;
 
-import io.github.hongjungwan.blackbox.core.config.SecureLogConfig;
+import io.github.hongjungwan.blackbox.api.config.SecureLogConfig;
 import io.github.hongjungwan.blackbox.core.security.KmsClient;
 import org.junit.jupiter.api.*;
 import org.testcontainers.containers.localstack.LocalStackContainer;

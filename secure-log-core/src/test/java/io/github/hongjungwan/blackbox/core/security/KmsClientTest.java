@@ -1,6 +1,6 @@
 package io.github.hongjungwan.blackbox.core.security;
 
-import io.github.hongjungwan.blackbox.core.config.SecureLogConfig;
+import io.github.hongjungwan.blackbox.api.config.SecureLogConfig;
 import org.junit.jupiter.api.*;
 
 import javax.crypto.SecretKey;

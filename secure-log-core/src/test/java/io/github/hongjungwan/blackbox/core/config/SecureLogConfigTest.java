@@ -1,5 +1,6 @@
 package io.github.hongjungwan.blackbox.core.config;
 
+import io.github.hongjungwan.blackbox.api.config.SecureLogConfig;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;

@@ -1,15 +1,15 @@
 package io.github.hongjungwan.blackbox.core.benchmark;
 
-import io.github.hongjungwan.blackbox.core.config.SecureLogConfig;
-import io.github.hongjungwan.blackbox.core.deduplication.SemanticDeduplicator;
-import io.github.hongjungwan.blackbox.core.domain.LogEntry;
-import io.github.hongjungwan.blackbox.core.integrity.MerkleChain;
-import io.github.hongjungwan.blackbox.core.masking.PiiMasker;
-import io.github.hongjungwan.blackbox.core.processor.LogProcessor;
+import io.github.hongjungwan.blackbox.api.config.SecureLogConfig;
+import io.github.hongjungwan.blackbox.core.internal.SemanticDeduplicator;
+import io.github.hongjungwan.blackbox.api.domain.LogEntry;
+import io.github.hongjungwan.blackbox.core.internal.MerkleChain;
+import io.github.hongjungwan.blackbox.core.security.PiiMasker;
+import io.github.hongjungwan.blackbox.core.internal.LogProcessor;
 import io.github.hongjungwan.blackbox.core.security.EnvelopeEncryption;
 import io.github.hongjungwan.blackbox.core.security.KmsClient;
-import io.github.hongjungwan.blackbox.core.serialization.LogSerializer;
-import io.github.hongjungwan.blackbox.core.transport.LogTransport;
+import io.github.hongjungwan.blackbox.core.internal.LogSerializer;
+import io.github.hongjungwan.blackbox.core.internal.LogTransport;
 import org.openjdk.jmh.annotations.*;
 import org.openjdk.jmh.infra.Blackhole;
 import org.openjdk.jmh.runner.Runner;

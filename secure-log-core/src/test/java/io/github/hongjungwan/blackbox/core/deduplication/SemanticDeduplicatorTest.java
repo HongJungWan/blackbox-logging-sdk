@@ -1,7 +1,8 @@
 package io.github.hongjungwan.blackbox.core.deduplication;
 
-import io.github.hongjungwan.blackbox.core.config.SecureLogConfig;
-import io.github.hongjungwan.blackbox.core.domain.LogEntry;
+import io.github.hongjungwan.blackbox.api.config.SecureLogConfig;
+import io.github.hongjungwan.blackbox.api.domain.LogEntry;
+import io.github.hongjungwan.blackbox.core.internal.SemanticDeduplicator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;

@@ -1,7 +1,7 @@
 package io.github.hongjungwan.blackbox.core.security;
 
-import io.github.hongjungwan.blackbox.core.config.SecureLogConfig;
-import io.github.hongjungwan.blackbox.core.domain.LogEntry;
+import io.github.hongjungwan.blackbox.api.config.SecureLogConfig;
+import io.github.hongjungwan.blackbox.api.domain.LogEntry;
 import lombok.extern.slf4j.Slf4j;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 
@@ -17,19 +17,23 @@ import java.util.Map;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * FEAT-04: Envelope Encryption (DEK + KEK)
+ * Envelope Encryption implementation (DEK + KEK).
  *
- * Key Hierarchy:
- * - KEK (Key Encryption Key): Master key stored in KMS with rotation support
- * - DEK (Data Encryption Key): Per-block key generated in-memory, encrypted by KEK
+ * <p>Key Hierarchy:</p>
+ * <ul>
+ *   <li>KEK (Key Encryption Key): Master key stored in KMS with rotation support</li>
+ *   <li>DEK (Data Encryption Key): Per-block key generated in-memory, encrypted by KEK</li>
+ * </ul>
  *
- * Process:
- * 1. Generate DEK (AES-256) using SecureRandom
- * 2. Encrypt log data with DEK (AES-GCM)
- * 3. Encrypt DEK with KEK from KMS
- * 4. Store encrypted DEK in log header
+ * <p>Process:</p>
+ * <ol>
+ *   <li>Generate DEK (AES-256) using SecureRandom</li>
+ *   <li>Encrypt log data with DEK (AES-GCM)</li>
+ *   <li>Encrypt DEK with KEK from KMS</li>
+ *   <li>Store encrypted DEK in log header</li>
+ * </ol>
  *
- * Crypto-Shredding: Destroying DEK makes logs permanently unrecoverable
+ * <p>Crypto-Shredding: Destroying DEK makes logs permanently unrecoverable.</p>
  */
 @Slf4j
 public class EnvelopeEncryption {
@@ -64,7 +68,7 @@ public class EnvelopeEncryption {
     }
 
     /**
-     * Encrypt log entry using envelope encryption
+     * Encrypt log entry using envelope encryption.
      */
     public LogEntry encrypt(LogEntry entry) {
         try {
@@ -103,7 +107,7 @@ public class EnvelopeEncryption {
     }
 
     /**
-     * Encrypt data with DEK using AES-GCM
+     * Encrypt data with DEK using AES-GCM.
      */
     private byte[] encryptWithDek(byte[] data, SecretKey dek) throws Exception {
         // Generate random IV
@@ -127,7 +131,7 @@ public class EnvelopeEncryption {
     }
 
     /**
-     * Encrypt DEK with KEK from KMS
+     * Encrypt DEK with KEK from KMS.
      */
     private byte[] encryptDekWithKek(SecretKey dek) throws Exception {
         // Get KEK from KMS
@@ -152,7 +156,7 @@ public class EnvelopeEncryption {
     }
 
     /**
-     * Generate new DEK using SecureRandom
+     * Generate new DEK using SecureRandom.
      */
     private SecretKey generateDek() {
         try {
@@ -165,7 +169,7 @@ public class EnvelopeEncryption {
     }
 
     /**
-     * Rotate DEK if rotation interval has passed
+     * Rotate DEK if rotation interval has passed.
      * CRITICAL: Uses ReentrantLock instead of synchronized (Virtual Thread compatible)
      */
     private void rotateDekIfNeeded() {
@@ -192,7 +196,7 @@ public class EnvelopeEncryption {
     }
 
     /**
-     * Best-effort key destruction
+     * Best-effort key destruction.
      */
     private void destroyKey(SecretKey key) {
         try {
@@ -214,7 +218,7 @@ public class EnvelopeEncryption {
     }
 
     /**
-     * Decrypt log entry (for authorized access only)
+     * Decrypt log entry (for authorized access only).
      */
     public LogEntry decrypt(LogEntry encryptedEntry) {
         try {

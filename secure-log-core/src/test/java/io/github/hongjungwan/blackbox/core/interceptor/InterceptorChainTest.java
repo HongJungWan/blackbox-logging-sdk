@@ -1,6 +1,9 @@
 package io.github.hongjungwan.blackbox.core.interceptor;
 
-import io.github.hongjungwan.blackbox.core.domain.LogEntry;
+import io.github.hongjungwan.blackbox.api.domain.LogEntry;
+import io.github.hongjungwan.blackbox.api.interceptor.LogInterceptor;
+import io.github.hongjungwan.blackbox.core.internal.InterceptorChainImpl;
+import io.github.hongjungwan.blackbox.core.internal.BuiltInInterceptors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -41,7 +44,7 @@ class InterceptorChainTest {
         void shouldExecuteInPriorityOrder() {
             List<String> executionOrder = new ArrayList<>();
 
-            InterceptorChain chain = InterceptorChain.builder()
+            InterceptorChainImpl chain = InterceptorChainImpl.builder()
                     .add("low", LogInterceptor.Priority.LOW, (entry, c) -> {
                         executionOrder.add("low");
                         return c.proceed(entry);
@@ -64,7 +67,7 @@ class InterceptorChainTest {
         @Test
         @DisplayName("should pass modified entry through chain")
         void shouldPassModifiedEntry() {
-            InterceptorChain chain = InterceptorChain.builder()
+            InterceptorChainImpl chain = InterceptorChainImpl.builder()
                     .add("modifier", (entry, c) -> {
                         LogEntry modified = LogEntry.builder()
                                 .timestamp(entry.getTimestamp())
@@ -90,7 +93,7 @@ class InterceptorChainTest {
         @Test
         @DisplayName("should return null when interceptor drops entry")
         void shouldReturnNullWhenDropped() {
-            InterceptorChain chain = InterceptorChain.builder()
+            InterceptorChainImpl chain = InterceptorChainImpl.builder()
                     .add("dropper", (entry, c) -> null) // Drop
                     .add("never-called", (entry, c) -> {
                         fail("Should not be called");
@@ -108,7 +111,7 @@ class InterceptorChainTest {
         void shouldContinueOnException() {
             List<String> executionOrder = new ArrayList<>();
 
-            InterceptorChain chain = InterceptorChain.builder()
+            InterceptorChainImpl chain = InterceptorChainImpl.builder()
                     .add("thrower", LogInterceptor.Priority.HIGH, (entry, c) -> {
                         executionOrder.add("thrower");
                         throw new RuntimeException("intentional");
@@ -133,7 +136,7 @@ class InterceptorChainTest {
         @Test
         @DisplayName("should register and unregister interceptors")
         void shouldRegisterAndUnregister() {
-            InterceptorChain.Registry registry = new InterceptorChain.Registry();
+            InterceptorChainImpl.Registry registry = new InterceptorChainImpl.Registry();
             List<String> executionOrder = new ArrayList<>();
 
             registry.register("first", (entry, c) -> {
@@ -150,7 +153,7 @@ class InterceptorChainTest {
             registry.unregister("first");
             assertThat(registry.size()).isEqualTo(1);
 
-            InterceptorChain chain = registry.buildChain(LogInterceptor.ProcessingStage.PRE_PROCESS);
+            InterceptorChainImpl chain = registry.buildChain(LogInterceptor.ProcessingStage.PRE_PROCESS);
             chain.execute(testEntry);
 
             assertThat(executionOrder).containsExactly("second");
@@ -159,7 +162,7 @@ class InterceptorChainTest {
         @Test
         @DisplayName("should maintain priority order after registration")
         void shouldMaintainPriorityOrder() {
-            InterceptorChain.Registry registry = new InterceptorChain.Registry();
+            InterceptorChainImpl.Registry registry = new InterceptorChainImpl.Registry();
             List<String> executionOrder = new ArrayList<>();
 
             registry.register("low", LogInterceptor.Priority.LOW, (entry, c) -> {
@@ -171,7 +174,7 @@ class InterceptorChainTest {
                 return c.proceed(entry);
             });
 
-            InterceptorChain chain = registry.buildChain(LogInterceptor.ProcessingStage.PRE_PROCESS);
+            InterceptorChainImpl chain = registry.buildChain(LogInterceptor.ProcessingStage.PRE_PROCESS);
             chain.execute(testEntry);
 
             assertThat(executionOrder).containsExactly("high", "low");
@@ -187,7 +190,7 @@ class InterceptorChainTest {
         void shouldProvideMetadata() {
             java.util.concurrent.atomic.AtomicInteger interceptorCount = new java.util.concurrent.atomic.AtomicInteger(-1);
 
-            InterceptorChain chain = InterceptorChain.builder()
+            InterceptorChainImpl chain = InterceptorChainImpl.builder()
                     .add("counter", (entry, c) -> {
                         interceptorCount.set(c.metadata().interceptorCount());
                         return c.proceed(entry);
@@ -204,7 +207,7 @@ class InterceptorChainTest {
         @Test
         @DisplayName("should track start time")
         void shouldTrackStartTime() {
-            InterceptorChain chain = InterceptorChain.builder()
+            InterceptorChainImpl chain = InterceptorChainImpl.builder()
                     .add("timer", (entry, c) -> {
                         assertThat(c.metadata().startTimeNanos()).isGreaterThan(0);
                         return c.proceed(entry);
@@ -217,7 +220,7 @@ class InterceptorChainTest {
         @Test
         @DisplayName("should expose processing stage")
         void shouldExposeProcessingStage() {
-            InterceptorChain chain = InterceptorChain.builder()
+            InterceptorChainImpl chain = InterceptorChainImpl.builder()
                     .add("stageChecker", (entry, c) -> {
                         assertThat(c.stage()).isEqualTo(LogInterceptor.ProcessingStage.POST_MASK);
                         return c.proceed(entry);
@@ -238,7 +241,7 @@ class InterceptorChainTest {
         void samplingInterceptorShouldDrop() {
             // 0% sampling - drop all
             LogInterceptor sampler = BuiltInInterceptors.sampling(0);
-            InterceptorChain chain = InterceptorChain.builder()
+            InterceptorChainImpl chain = InterceptorChainImpl.builder()
                     .add("sampler", sampler)
                     .build();
 
@@ -251,7 +254,7 @@ class InterceptorChainTest {
         @DisplayName("sampling interceptor should keep all at 100%")
         void samplingInterceptorShouldKeepAll() {
             LogInterceptor sampler = BuiltInInterceptors.sampling(1.0);
-            InterceptorChain chain = InterceptorChain.builder()
+            InterceptorChainImpl chain = InterceptorChainImpl.builder()
                     .add("sampler", sampler)
                     .build();
 
@@ -266,7 +269,7 @@ class InterceptorChainTest {
             LogInterceptor filter = BuiltInInterceptors.levelFilter(
                     java.util.Set.of("ERROR", "WARN")
             );
-            InterceptorChain chain = InterceptorChain.builder()
+            InterceptorChainImpl chain = InterceptorChainImpl.builder()
                     .add("filter", filter)
                     .build();
 
@@ -297,7 +300,7 @@ class InterceptorChainTest {
             LogInterceptor redactor = BuiltInInterceptors.fieldRedaction(
                     java.util.Set.of("password")
             );
-            InterceptorChain chain = InterceptorChain.builder()
+            InterceptorChainImpl chain = InterceptorChainImpl.builder()
                     .add("redactor", redactor)
                     .build();
 

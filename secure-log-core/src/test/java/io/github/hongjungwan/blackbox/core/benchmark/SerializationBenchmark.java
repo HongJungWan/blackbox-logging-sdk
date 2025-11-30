@@ -1,7 +1,7 @@
 package io.github.hongjungwan.blackbox.core.benchmark;
 
-import io.github.hongjungwan.blackbox.core.domain.LogEntry;
-import io.github.hongjungwan.blackbox.core.serialization.LogSerializer;
+import io.github.hongjungwan.blackbox.api.domain.LogEntry;
+import io.github.hongjungwan.blackbox.core.internal.LogSerializer;
 import org.openjdk.jmh.annotations.*;
 import org.openjdk.jmh.infra.Blackhole;
 import org.openjdk.jmh.runner.Runner;
