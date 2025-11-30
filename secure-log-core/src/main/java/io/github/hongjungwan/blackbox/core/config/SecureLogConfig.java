@@ -152,6 +152,18 @@ public class SecureLogConfig {
     @Builder.Default
     private final boolean integrityEnabled = true;
 
+    /**
+     * Circuit breaker failure threshold
+     */
+    @Builder.Default
+    private final int circuitBreakerFailureThreshold = 3;
+
+    /**
+     * Rate limiter logs per second
+     */
+    @Builder.Default
+    private final long rateLimitLogsPerSecond = 20000;
+
     public enum LoggingMode {
         SYNC,
         ASYNC,
