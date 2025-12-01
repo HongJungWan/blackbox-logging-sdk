@@ -34,6 +34,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Module-specific builds
 ./gradlew :secure-log-core:build
 ./gradlew :secure-log-starter:build
+./gradlew :secure-log-test:build
+
+# Run integration tests (requires Docker for Testcontainers)
+./gradlew integrationTest
 
 # Run unit tests only (excluding Testcontainers integration tests)
 ./gradlew :secure-log-core:test --tests "io.github.hongjungwan.blackbox.core.context.*" \
@@ -129,7 +133,7 @@ LogEvent → VirtualAsyncAppender → LogProcessor Pipeline:
 processor.addPreProcessInterceptor("name", LogInterceptor.Priority.HIGH,
     (entry, chain) -> {
         // Modify entry or return null to drop
-        return chain.proceed(modifiedEntry);
+        return chain.proceed(entry);
     });
 ```
 

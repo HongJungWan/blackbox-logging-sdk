@@ -1,0 +1,43 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# IDE
+.idea
+*.iml
+.vscode
+*.swp
+*.swo
+
+# Build outputs
+build/
+*/build/
+out/
+target/
+
+# Gradle
+.gradle/
+gradle/wrapper/gradle-wrapper.jar
+
+# Logs
+*.log
+logs/
+
+# Temp files
+*.tmp
+*.temp
+temp/
+tmp/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Documentation (not needed in container)
+*.md
+docs/
+
+# Claude Code
+.claude/
+CLAUDE.md

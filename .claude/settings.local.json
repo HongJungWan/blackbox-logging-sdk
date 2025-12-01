@@ -30,7 +30,10 @@
       "Bash(export JAVA_HOME=\"/c/Users/Hong/tools/jdk21.0.9_10\":*)",
       "Bash(cat:*)",
       "Bash(export JAVA_HOME=\"/c/Users/Hong/tools/jdk-21.0.9+10\")",
-      "Bash({} ;)"
+      "Bash({} ;)",
+      "Bash(chmod:*)",
+      "Bash(/usr/libexec/java_home:*)",
+      "Bash(docker info:*)"
     ],
     "deny": [],
     "ask": []

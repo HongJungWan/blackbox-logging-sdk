@@ -17,6 +17,7 @@ import org.testcontainers.utility.DockerImageName;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.Properties;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -28,7 +29,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("Kafka 통합 테스트")
 class KafkaIntegrationTest {
 
-    private static final String TEST_TOPIC = "test-secure-hr-logs";
+    // Each test uses unique topic to avoid interference
+    private String testTopic;
 
     @Container
     static KafkaContainer kafka = new KafkaContainer(
@@ -40,9 +42,12 @@ class KafkaIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        // Generate unique topic for each test to avoid interference
+        testTopic = "test-kafka-" + UUID.randomUUID().toString().substring(0, 8);
+
         config = SecureLogConfig.builder()
                 .kafkaBootstrapServers(kafka.getBootstrapServers())
-                .kafkaTopic(TEST_TOPIC)
+                .kafkaTopic(testTopic)
                 .kafkaAcks("all")
                 .kafkaRetries(3)
                 .kafkaBatchSize(16384)
@@ -72,11 +77,11 @@ class KafkaIntegrationTest {
             byte[] testData = "Hello Kafka".getBytes();
 
             // when
-            producer.send(TEST_TOPIC, testData).get(10, TimeUnit.SECONDS);
+            producer.send(testTopic, testData).get(10, TimeUnit.SECONDS);
 
             // then - verify with consumer
             try (KafkaConsumer<String, byte[]> consumer = createConsumer()) {
-                consumer.subscribe(Collections.singletonList(TEST_TOPIC));
+                consumer.subscribe(Collections.singletonList(testTopic));
                 ConsumerRecords<String, byte[]> records = consumer.poll(Duration.ofSeconds(10));
 
                 assertThat(records.count()).isGreaterThan(0);
@@ -97,7 +102,7 @@ class KafkaIntegrationTest {
 
             // then
             try (KafkaConsumer<String, byte[]> consumer = createConsumer()) {
-                consumer.subscribe(Collections.singletonList(TEST_TOPIC));
+                consumer.subscribe(Collections.singletonList(testTopic));
                 ConsumerRecords<String, byte[]> records = consumer.poll(Duration.ofSeconds(10));
 
                 assertThat(records.count()).isGreaterThan(0);
@@ -113,13 +118,13 @@ class KafkaIntegrationTest {
             // when
             for (int i = 0; i < messageCount; i++) {
                 byte[] data = ("Message " + i).getBytes();
-                producer.send(TEST_TOPIC, data);
+                producer.send(testTopic, data);
             }
             producer.flush();
 
             // then
             try (KafkaConsumer<String, byte[]> consumer = createConsumer()) {
-                consumer.subscribe(Collections.singletonList(TEST_TOPIC));
+                consumer.subscribe(Collections.singletonList(testTopic));
 
                 int received = 0;
                 long deadline = System.currentTimeMillis() + 30000;
@@ -149,11 +154,11 @@ class KafkaIntegrationTest {
             byte[] testData = builder.toString().getBytes();
 
             // when
-            producer.send(TEST_TOPIC, testData).get(10, TimeUnit.SECONDS);
+            producer.send(testTopic, testData).get(10, TimeUnit.SECONDS);
 
             // then
             try (KafkaConsumer<String, byte[]> consumer = createConsumer()) {
-                consumer.subscribe(Collections.singletonList(TEST_TOPIC));
+                consumer.subscribe(Collections.singletonList(testTopic));
                 ConsumerRecords<String, byte[]> records = consumer.poll(Duration.ofSeconds(10));
 
                 assertThat(records.count()).isGreaterThan(0);
@@ -174,8 +179,8 @@ class KafkaIntegrationTest {
             byte[] testData = "Count test".getBytes();
 
             // when
-            producer.send(TEST_TOPIC, testData).get(10, TimeUnit.SECONDS);
-            producer.send(TEST_TOPIC, testData).get(10, TimeUnit.SECONDS);
+            producer.send(testTopic, testData).get(10, TimeUnit.SECONDS);
+            producer.send(testTopic, testData).get(10, TimeUnit.SECONDS);
 
             // then
             assertThat(producer.getSentCount()).isEqualTo(2);

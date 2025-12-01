@@ -5,6 +5,29 @@ plugins {
 
 description = 'SecureHR Logging SDK - Core Library (Zero-Dependency with Shading)'
 
+// Create separate source set for integration tests
+sourceSets {
+	integrationTest {
+		java {
+			compileClasspath += main.output + test.output
+			runtimeClasspath += main.output + test.output
+			srcDir file('src/integrationTest/java')
+		}
+		resources.srcDir file('src/integrationTest/resources')
+	}
+}
+
+// Integration test configuration
+configurations {
+	integrationTestImplementation.extendsFrom testImplementation
+	integrationTestRuntimeOnly.extendsFrom testRuntimeOnly
+}
+
+// Handle duplicate resources
+tasks.named('processIntegrationTestResources', ProcessResources) {
+	duplicatesStrategy = DuplicatesStrategy.INCLUDE
+}
+
 dependencies {
 	// Logging framework integration
 	api 'ch.qos.logback:logback-classic:1.5.15'
@@ -86,3 +109,50 @@ shadowJar {
 
 // Make shadowJar the default artifact
 tasks.build.dependsOn tasks.shadowJar
+
+// Integration test task
+task integrationTest(type: Test) {
+	description = 'Runs integration tests (requires Docker)'
+	group = 'verification'
+
+	testClassesDirs = sourceSets.integrationTest.output.classesDirs
+	classpath = sourceSets.integrationTest.runtimeClasspath
+
+	// Run after unit tests
+	shouldRunAfter test
+
+	// JVM options for Testcontainers
+	jvmArgs '-XX:+EnableDynamicAgentLoading'
+
+	// Run all tests even if some fail
+	failFast = false
+
+	// Increase timeout for container startup
+	systemProperty 'junit.jupiter.execution.timeout.default', '5m'
+
+	// Output
+	testLogging {
+		events 'passed', 'skipped', 'failed'
+		showExceptions = true
+		showCauses = true
+		showStackTraces = true
+		exceptionFormat = 'full'
+	}
+}
+
+// Exclude integration tests from regular test task
+test {
+	// Exclude classes in integration package
+	exclude '**/integration/**'
+
+	testLogging {
+		events 'passed', 'skipped', 'failed'
+	}
+}
+
+// Run all tests including integration
+task allTests(type: Test) {
+	description = 'Runs all tests including integration tests'
+	group = 'verification'
+	dependsOn test, integrationTest
+}
