@@ -1,7 +1,8 @@
 <div align="center">
   <h1>Blackbox Logging SDK</h1>
 
-![blackbox-logging-sdk]()
+  <img src="https://github.com/user-attachments/assets/4af1bc28-4377-466a-94a0-1c51ffcf5676" width="600">
+
 </div>
 
 <p align=center>
@@ -15,11 +16,15 @@
 
 ## ✍🏻 프로젝트 개요
 
-"기존 SLF4J와 Logback만으로는 HR 도메인의 엄격한 보안과 성능 요구를 동시에 충족하기 어려웠습니다."
+"로그, 남기는 건 필수지만 기다리는 건 싫으니까요."
 
-민감 정보의 실시간 암호화와 무결성 검증은 필연적으로 성능 병목을 야기하기 때문입니다. Blackbox Logging SDK는 이 난제를 해결하기 위해 Java 21 Virtual Threads와 Off-heap RingBuffer 아키텍처를 도입했습니다.
+감사 시스템에서 '엄격한 보안'과 '빠른 성능'은 양립하기 힘든 문제입니다. 암호화 비용이 곧 레이턴시가 되기 때문입니다.
 
-시스템이 멈추는 순간까지 데이터를 보호하는 Envelope Encryption과 위변조를 막는 Merkle Tree 기술을 통해, 성능 타협 없는 완벽한 '블랙박스' 감사(Audit) 시스템을 제공합니다.
+우리는 이 트레이드오프를 아키텍처로 극복했습니다.
+- Java 21 Virtual Thread로 동시성을 극대화하고,
+- Lock-free Queue로 스레드 경합(Contention)을 없앴습니다.
+
+시스템이 아무리 바빠도 로그는 조용히, 그리고 안전하게 기록됩니다.
 
 ![]()
 

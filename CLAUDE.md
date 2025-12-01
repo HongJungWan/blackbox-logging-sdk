@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**SecureHR Logging SDK (v8.0.0)** is a zero-dependency, high-performance logging SDK for HR domain applications requiring strict security and compliance. Built on Java 21 Virtual Threads and off-heap memory architecture.
+**SecureHR Logging SDK (v8.0.0)** is a zero-dependency, high-performance logging SDK for HR domain applications requiring strict security and compliance. Built on Java 21 Virtual Threads and Lock-free Queue (JCTools) architecture.
 
 **Artifact ID**: `secure-hr-logging-starter`
 **Requirements**: Java 21+, Spring Boot 3.5+
@@ -113,7 +113,7 @@ LogEvent → VirtualAsyncAppender → LogProcessor Pipeline:
 
 ### Security Model
 - **Envelope Encryption**: DEK (AES-256-GCM) + KEK (from KMS)
-- **Integrity**: Merkle Tree SHA-256 hash chaining
+- **Integrity**: SHA-256 Hash Chain (blockchain-style chaining)
 - **Crypto-Shredding**: DEK destruction makes logs unrecoverable
 - **PII Masking**: Zero-allocation char array manipulation
 
@@ -166,8 +166,45 @@ secure-hr:
 - **Latency**: Log call return < 5μs (non-blocking)
 - **Memory**: GC allocation < 1MB/sec under load
 
-## Testing Notes
+## Testing
 
-- Integration tests require Docker (Testcontainers for Kafka, LocalStack)
-- Run unit tests with `--tests "!*IntegrationTest"` to skip Docker-dependent tests
-- Use `LogAssert` from `secure-log-test` module for fluent assertions
+### Test Structure
+```
+secure-log-core/src/
+├── test/java/...                    # Unit tests (Docker 불필요)
+└── integrationTest/java/            # Integration tests (Docker 필요)
+    └── io/.../integration/
+        ├── EndToEndTest.java
+        ├── KafkaIntegrationTest.java
+        └── KmsIntegrationTest.java
+```
+
+### Commands
+```bash
+# Unit tests only (no Docker required)
+./gradlew :secure-log-core:test
+
+# Integration tests (requires Docker)
+./gradlew :secure-log-core:integrationTest
+
+# All tests
+./gradlew :secure-log-core:allTests
+```
+
+### Docker Test Infrastructure
+```bash
+# Start test infrastructure
+./scripts/start-test-infra.sh --wait
+
+# Stop test infrastructure
+./scripts/stop-test-infra.sh
+
+# Check Docker status
+./scripts/check-docker.sh
+```
+
+Docker services for integration tests:
+- Kafka: `localhost:9092`
+- LocalStack (KMS): `localhost:4566`
+
+Use `LogAssert` from `secure-log-test` module for fluent assertions.
