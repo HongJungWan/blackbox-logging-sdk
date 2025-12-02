@@ -32,28 +32,28 @@ KBS SDK를 사용하면 시스템 부하가 높아져도 로그는 메인 로직
 
 > 비즈니스 로직에만 집중하세요. 전화번호, 이메일, 주민등록번호 같은 민감 정보(PII)가 감지되면 SDK가 자동으로 `******` 마스킹 처리하여 저장합니다.
 
-<img src="https://github.com/user-attachments/assets/3dd44c8f-8a36-4000-b0a5-e250810f2ed0" width="400">
+<img src="https://github.com/user-attachments/assets/3dd44c8f-8a36-4000-b0a5-e250810f2ed0" width="450">
 
 ### 2. 위변조 방지
 
 > 로그의 신뢰성을 위해 블록체인의 Hash Chain 기술을 적용했습니다. 
 > 이전 로그와 현재 로그가 체인처럼 연결되어 있어, 중간에 데이터가 1바이트라도 변조되면 즉시 탐지 가능합니다.
 
-<img src="https://github.com/user-attachments/assets/5adfc1d7-32ac-456d-a6bf-44cd89867d5d" width="400">
+<img src="https://github.com/user-attachments/assets/5adfc1d7-32ac-456d-a6bf-44cd89867d5d" width="450">
 
 ### 3. 암호화
 
 > 저장되는 순간 현존 최고 수준의 암호화 방식인 AES-256-GCM이 적용됩니다. 
 > 암호화 키 없이는 그 누구도 내용을 확인할 수 없습니다.
 
-<img src="https://github.com/user-attachments/assets/2c2ae06c-c7d1-4745-9f55-51cfc9e72e74" width="400">
+<img src="https://github.com/user-attachments/assets/2c2ae06c-c7d1-4745-9f55-51cfc9e72e74" width="450">
 
 ### 4. Crypto-Shredding
 
 > 수많은 로그 속에서 특정 개인정보를 찾아 지우는 것은 비효율적입니다. 
 > 우리는 해당 데이터의 '암호화 키'를 파기하는 방식으로, 데이터를 영구적으로 복구 불가능하게 만듭니다.
 
-<img src="https://github.com/user-attachments/assets/caa74a07-ec89-4777-a00e-ca7aa99a1436" width="400">
+<img src="https://github.com/user-attachments/assets/caa74a07-ec89-4777-a00e-ca7aa99a1436" width="450">
 
 <br><br>
 
@@ -104,4 +104,4 @@ KBS SDK를 사용하면 시스템 부하가 높아져도 로그는 메인 로직
 
 ## 🏛️ 서비스 아키텍처
 
-<img src="https://github.com/user-attachments/assets/82893c14-ba04-4abf-b75d-bb698faa3354" width="600">
+<img src="https://github.com/user-attachments/assets/82893c14-ba04-4abf-b75d-bb698faa3354" width="500">
