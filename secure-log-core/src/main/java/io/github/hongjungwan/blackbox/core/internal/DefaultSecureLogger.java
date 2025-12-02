@@ -144,7 +144,13 @@ public class DefaultSecureLogger implements SecureLogger {
             action.run();
         } finally {
             // Clear MDC values
-            mdcValues.keySet().forEach(MDC::remove);
+            for (String key : mdcValues.keySet()) {
+                try {
+                    MDC.remove(key);
+                } catch (Exception e) {
+                    // Log but don't propagate
+                }
+            }
         }
     }
 
@@ -169,8 +175,18 @@ public class DefaultSecureLogger implements SecureLogger {
             action.run();
         } finally {
             // Clear MDC values
-            mdcValues.keySet().forEach(MDC::remove);
-            MDC.remove(PAYLOAD_MDC_KEY);
+            for (String key : mdcValues.keySet()) {
+                try {
+                    MDC.remove(key);
+                } catch (Exception e) {
+                    // Log but don't propagate
+                }
+            }
+            try {
+                MDC.remove(PAYLOAD_MDC_KEY);
+            } catch (Exception e) {
+                // Log but don't propagate
+            }
         }
     }
 

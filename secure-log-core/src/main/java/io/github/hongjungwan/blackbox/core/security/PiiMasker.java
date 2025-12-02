@@ -116,7 +116,10 @@ public class PiiMasker {
             Object value = entry.getValue();
 
             // Check if field needs masking by name
-            MaskingStrategy strategy = strategies.get(key.toLowerCase());
+            MaskingStrategy strategy = null;
+            if (key != null) {
+                strategy = strategies.get(key.toLowerCase());
+            }
 
             if (strategy != null && value instanceof String) {
                 masked.put(key, strategy.mask((String) value));

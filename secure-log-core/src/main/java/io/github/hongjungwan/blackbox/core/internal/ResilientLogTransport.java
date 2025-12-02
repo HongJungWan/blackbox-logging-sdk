@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 
 /**
@@ -59,6 +60,9 @@ public class ResilientLogTransport {
     // Replay scheduler
     private ScheduledExecutorService replayScheduler;
     private volatile boolean autoReplayEnabled = false;
+
+    // Counter for unique fallback filenames
+    private final AtomicLong fallbackFileCounter = new AtomicLong(0);
 
     public ResilientLogTransport(SecureLogConfig config, LogSerializer serializer) {
         this.config = config;
@@ -161,7 +165,8 @@ public class ResilientLogTransport {
         try {
             String timestamp = LocalDateTime.now()
                     .format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss-SSS"));
-            Path fallbackFile = fallbackDirectory.resolve("log-" + timestamp + ".zst");
+            long counter = fallbackFileCounter.incrementAndGet();
+            Path fallbackFile = fallbackDirectory.resolve("log-" + timestamp + "-" + counter + ".zst");
 
             Files.write(fallbackFile, data,
                     StandardOpenOption.CREATE,
@@ -225,42 +230,52 @@ public class ResilientLogTransport {
      * @return true if replay succeeded or file was skipped (being processed), false on error
      */
     private boolean replayFile(Path file) {
+        FileLock lock = null;
         try (FileChannel channel = FileChannel.open(file, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
             // Try to acquire exclusive lock (non-blocking)
-            FileLock lock = channel.tryLock();
+            lock = channel.tryLock();
             if (lock == null) {
                 // File is being processed by another thread/process, skip
                 log.debug("File {} is being processed by another thread, skipping", file);
                 return true;  // Not an error, just skip
             }
 
-            try {
-                // Read file contents while holding lock
-                byte[] data = Files.readAllBytes(file);
+            // Read file contents while holding lock
+            byte[] data = Files.readAllBytes(file);
 
-                // Use circuit breaker for replay
-                circuitBreaker.execute(() -> {
-                    kafkaProducer.send(config.getKafkaTopic(), data);
-                    return null;
-                });
+            // Use circuit breaker for replay
+            circuitBreaker.execute(() -> {
+                kafkaProducer.send(config.getKafkaTopic(), data);
+                return null;
+            });
 
-                // Release lock before secure delete
-                lock.release();
-
-                // Secure delete after successful replay
-                secureDelete(file);
-                log.info("Replayed and deleted: {}", file);
-                return true;
-
-            } finally {
-                // Ensure lock is released if still valid
-                if (lock.isValid()) {
+            // Release lock before secure delete
+            if (lock != null && lock.isValid()) {
+                try {
                     lock.release();
+                } catch (IOException e) {
+                    log.warn("Failed to release file lock: {}", e.getMessage());
                 }
+                lock = null;
             }
+
+            // Secure delete after successful replay
+            secureDelete(file);
+            log.info("Replayed and deleted: {}", file);
+            return true;
+
         } catch (Exception e) {
             log.error("Failed to replay file: {}", file, e);
             return false;
+        } finally {
+            // Ensure lock is released if still valid
+            if (lock != null && lock.isValid()) {
+                try {
+                    lock.release();
+                } catch (IOException e) {
+                    log.warn("Failed to release file lock: {}", e.getMessage());
+                }
+            }
         }
     }
 

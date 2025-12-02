@@ -185,8 +185,14 @@ public class SecureLogAutoConfiguration {
                         "Consider using a centralized integrity service for cross-instance verification.");
             }
 
-            // Start appender
-            appender.start();
+            // Start appender with error handling
+            try {
+                appender.start();
+                log.info("VirtualAsyncAppender started successfully");
+            } catch (Exception e) {
+                log.error("Failed to start VirtualAsyncAppender", e);
+                throw new IllegalStateException("SDK initialization failed", e);
+            }
 
             running = true;
             log.info("SecureHR Logging SDK started successfully in {} mode", config.getMode());

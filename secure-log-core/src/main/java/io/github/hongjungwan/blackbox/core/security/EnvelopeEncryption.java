@@ -185,11 +185,11 @@ public class EnvelopeEncryption {
             rotationLock.lock();
             try {
                 // Double-check after acquiring lock
-                if (now - dekCreationTime > DEK_ROTATION_INTERVAL_MS) {
+                if (System.currentTimeMillis() - dekCreationTime > DEK_ROTATION_INTERVAL_MS) {
                     // Crypto-shredding: destroy old DEK
                     SecretKey oldDek = currentDek;
                     currentDek = generateDek();
-                    dekCreationTime = now;
+                    dekCreationTime = System.currentTimeMillis();  // Use fresh timestamp, not captured 'now'
 
                     // Clear old DEK from memory (best effort)
                     destroyKey(oldDek);
@@ -287,7 +287,15 @@ public class EnvelopeEncryption {
             SecretKey dek = decryptDekWithKek(encryptedDek);
 
             // Decrypt payload with DEK
-            String encryptedPayloadStr = (String) encryptedEntry.getPayload().get("encrypted");
+            Map<String, Object> payload = encryptedEntry.getPayload();
+            if (payload == null) {
+                throw new EncryptionException("Encrypted entry has no payload", null);
+            }
+            Object encryptedObj = payload.get("encrypted");
+            if (encryptedObj == null) {
+                throw new EncryptionException("Encrypted payload missing 'encrypted' field", null);
+            }
+            String encryptedPayloadStr = (String) encryptedObj;
             byte[] encryptedPayload = Base64.getDecoder().decode(encryptedPayloadStr);
             byte[] decryptedPayload = decryptWithDek(encryptedPayload, dek);
 
@@ -360,6 +368,10 @@ public class EnvelopeEncryption {
     }
 
     public static class EncryptionException extends RuntimeException {
+        public EncryptionException(String message) {
+            super(message);
+        }
+
         public EncryptionException(String message, Throwable cause) {
             super(message, cause);
         }

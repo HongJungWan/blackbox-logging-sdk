@@ -93,7 +93,7 @@ public class LogProcessor {
     public void process(LogEntry entry) {
         try {
             // Step 1: Semantic Deduplication (FEAT-02)
-            if (config.isDeduplicationEnabled()) {
+            if (config.isDeduplicationEnabled() && deduplicator != null) {
                 if (deduplicator.isDuplicate(entry)) {
                     // Silently skip, counter incremented in deduplicator
                     return;

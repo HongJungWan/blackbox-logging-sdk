@@ -94,25 +94,30 @@ public final class CircuitBreaker {
      * Check if call is permitted
      */
     public boolean tryAcquirePermission() {
-        State currentState = state.get();
+        stateLock.lock();
+        try {
+            State currentState = state.get();
 
-        switch (currentState) {
-            case CLOSED:
-                return true;
+            switch (currentState) {
+                case CLOSED:
+                    return true;
 
-            case OPEN:
-                // Check if we should transition to HALF_OPEN
-                if (shouldAttemptReset()) {
-                    return transitionToHalfOpen();
-                }
-                return false;
+                case OPEN:
+                    // Check if we should transition to HALF_OPEN
+                    if (shouldAttemptReset()) {
+                        return transitionToHalfOpen();
+                    }
+                    return false;
 
-            case HALF_OPEN:
-                // Only allow limited calls in half-open state
-                return true;
+                case HALF_OPEN:
+                    // Only allow limited calls in half-open state
+                    return true;
 
-            default:
-                return false;
+                default:
+                    return false;
+            }
+        } finally {
+            stateLock.unlock();
         }
     }
 

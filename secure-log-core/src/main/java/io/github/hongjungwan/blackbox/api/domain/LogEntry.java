@@ -151,9 +151,15 @@ public class LogEntry {
         // Fall back to checking argumentArray
         Object[] args = event.getArgumentArray();
         if (args != null && args.length > 0 && args[args.length - 1] instanceof Map) {
-            @SuppressWarnings("unchecked")
-            Map<String, Object> payload = (Map<String, Object>) args[args.length - 1];
-            return payload;
+            try {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> payload = (Map<String, Object>) args[args.length - 1];
+                return payload;
+            } catch (ClassCastException e) {
+                // Log warning and return empty map if cast fails
+                log.debug("Failed to cast argument to Map<String, Object>: {}", e.getMessage());
+                return Map.of();
+            }
         }
         return Map.of();
     }

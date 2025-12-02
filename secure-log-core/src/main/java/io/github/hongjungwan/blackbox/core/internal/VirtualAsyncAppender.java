@@ -64,10 +64,18 @@ public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEve
             addInfo("VirtualAsyncAppender stopping...");
 
             // Wait for buffer to drain (max 10 seconds)
+            // Use more robust draining with size check to detect stuck buffers
             int waitCount = 0;
-            while (!buffer.isEmpty() && waitCount < 100) {
+            int previousSize = buffer.size();
+            while (previousSize > 0 && waitCount < 100) {
                 LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(100));
                 waitCount++;
+                int currentSize = buffer.size();
+                if (currentSize == previousSize) {
+                    // No progress, buffer might be stuck
+                    break;
+                }
+                previousSize = currentSize;
             }
 
             // Drain remaining events to fallback storage if buffer not fully drained
@@ -176,8 +184,8 @@ public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEve
             addWarn("Buffer full. Dropped " + dropped + " events so far.");
         }
 
-        // Could implement fallback here
-        // processor.processFallback(LogEntry.fromEvent(event));
+        // Enable fallback processing to prevent data loss
+        processor.processFallback(LogEntry.fromEvent(event));
     }
 
     public long getDroppedEvents() {

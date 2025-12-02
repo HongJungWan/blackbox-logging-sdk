@@ -82,12 +82,21 @@ Configured in `secure-log-core/build.gradle` using Gradle Shadow plugin.
 ### Processing Pipeline
 ```
 LogEvent → VirtualAsyncAppender → LogProcessor Pipeline:
-  1. Deduplication (SemanticDeduplicator) - with summary log emission on window expiry
+  1. Deduplication (SemanticDeduplicator) - async summary emission via Virtual Thread executor
   2. PII Masking (PiiMasker) - field name + value pattern auto-detection
   3. Integrity Chain (MerkleChain) - persisted on shutdown, restored on startup
   4. Encryption (EnvelopeEncryption) - DEK rotation every 1 hour
-  5. Serialization (LogSerializer - Zstd) - 100MB payload limit
-  6. Transport (ResilientLogTransport - Kafka/Fallback) - categorized error handling
+  5. Serialization (LogSerializer - Zstd) - 100MB limit, size validation after decompress
+  6. Transport (ResilientLogTransport - Kafka/Fallback) - file locking for replay safety
+```
+
+### Graceful Shutdown
+```
+SecureLogLifecycle.stop():
+  1. VirtualAsyncAppender.stop() - 10s buffer drain timeout
+  2. Timeout exceeded → remaining events saved to fallback via processFallback()
+  3. LogProcessor.flush() - closes deduplicator executor
+  4. MerkleChain.saveState() - persist hash chain state
 ```
 
 ### Key Subsystems

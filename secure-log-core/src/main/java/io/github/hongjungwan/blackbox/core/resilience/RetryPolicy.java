@@ -133,7 +133,8 @@ public final class RetryPolicy {
 
     private void sleep(Duration duration) {
         // Use LockSupport for Virtual Thread compatibility
-        LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(duration.toMillis()));
+        // Use duration.toNanos() directly to avoid precision loss
+        LockSupport.parkNanos(duration.toNanos());
     }
 
     /**

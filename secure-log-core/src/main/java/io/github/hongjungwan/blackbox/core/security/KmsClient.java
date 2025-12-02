@@ -264,6 +264,12 @@ public class KmsClient implements AutoCloseable {
             byte[] keyBytes = Files.readAllBytes(kekPath);
             if (keyBytes.length != 32) { // AES-256 = 32 bytes
                 log.warn("Invalid fallback KEK file size, will regenerate");
+                try {
+                    Files.delete(kekPath);
+                    log.info("Deleted invalid KEK file: {}", kekPath);
+                } catch (IOException deleteEx) {
+                    log.warn("Failed to delete invalid KEK file: {}", deleteEx.getMessage());
+                }
                 return null;
             }
             return new SecretKeySpec(keyBytes, "AES");

@@ -99,6 +99,8 @@ public class SemanticDeduplicator implements AutoCloseable {
                 }
             }
         }
+        // Clear reference to prevent memory leak
+        entry.setFirstEntry(null);
     }
 
     /**

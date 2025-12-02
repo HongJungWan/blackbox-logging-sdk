@@ -1,5 +1,7 @@
 package io.github.hongjungwan.blackbox.core.internal;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import io.github.hongjungwan.blackbox.api.domain.LogEntry;
 
 import java.io.IOException;
@@ -45,6 +47,10 @@ import java.util.concurrent.locks.ReentrantLock;
 public class MerkleChain {
 
     private static final String HASH_ALGORITHM = "SHA-256";
+
+    // ObjectMapper with sorted keys for canonical JSON serialization
+    private static final ObjectMapper CANONICAL_MAPPER = new ObjectMapper()
+            .configure(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS, true);
 
     private final ReentrantLock lock = new ReentrantLock();
     private volatile String previousHash = "0000000000000000000000000000000000000000000000000000000000000000";
@@ -95,7 +101,13 @@ public class MerkleChain {
             digest.update(previousHash.getBytes(StandardCharsets.UTF_8));
 
             if (entry.getPayload() != null) {
-                digest.update(entry.getPayload().toString().getBytes(StandardCharsets.UTF_8));
+                try {
+                    String canonicalJson = CANONICAL_MAPPER.writeValueAsString(entry.getPayload());
+                    digest.update(canonicalJson.getBytes(StandardCharsets.UTF_8));
+                } catch (Exception e) {
+                    // Fallback to toString if serialization fails
+                    digest.update(entry.getPayload().toString().getBytes(StandardCharsets.UTF_8));
+                }
             }
 
             byte[] hashBytes = digest.digest();
@@ -110,6 +122,9 @@ public class MerkleChain {
      * Verify integrity chain
      */
     public boolean verifyChain(LogEntry entry, String expectedPreviousHash) {
+        if (entry.getIntegrity() == null) {
+            return false;
+        }
         String reconstructedHash = calculateHash(entry, expectedPreviousHash);
         String storedHash = entry.getIntegrity().replace("sha256:", "");
 
