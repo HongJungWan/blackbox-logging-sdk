@@ -1,5 +1,5 @@
 <div align="center">
-  <h1>🚛 KBS (Blackbox Logging SDK)</h1>
+  <h1>🚛 KBS (blacK-Box logging SDK)</h1>
 
   <img src="https://github.com/user-attachments/assets/4af1bc28-4377-466a-94a0-1c51ffcf5676" width="600">
 
@@ -43,7 +43,7 @@ KBS SDK를 사용하면 시스템 부하가 높아져도 로그는 메인 로직
 
 ### 3. 암호화
 
-> 저장되는 순간 현존 최고 수준의 암호화 방식인 AES-256-GCM이 적용됩니다. 
+> 저장되는 순간 AES-256-GCM 암호화 방식이 적용됩니다. 
 > 암호화 키 없이는 그 누구도 내용을 확인할 수 없습니다.
 
 <img src="https://github.com/user-attachments/assets/2c2ae06c-c7d1-4745-9f55-51cfc9e72e74" width="450">
