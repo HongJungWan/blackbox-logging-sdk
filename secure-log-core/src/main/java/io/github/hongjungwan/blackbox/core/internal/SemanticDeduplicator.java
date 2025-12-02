@@ -74,6 +74,55 @@ public class SemanticDeduplicator {
     }
 
     /**
+     * Get and reset repeat count for entries that should emit a summary log.
+     * This atomically retrieves the current count and resets it to 1 (for the next occurrence).
+     *
+     * @param entry the log entry to check
+     * @return the repeat count before reset, or 0 if entry was not deduplicated
+     */
+    public int getAndResetRepeatCount(LogEntry entry) {
+        LogSignature signature = LogSignature.from(entry);
+        DeduplicationEntry dedup = cache.getIfPresent(signature);
+
+        if (dedup == null) {
+            return 0;
+        }
+
+        // Atomically get current count and reset to 1 for next window
+        int count = dedup.counter.getAndSet(1);
+        return count;
+    }
+
+    /**
+     * Check if entry is duplicate and return the enriched entry with repeat_count if applicable.
+     * Call this when the deduplication window expires or periodically to emit summary logs.
+     *
+     * @param entry the original log entry
+     * @return LogEntry with repeat_count set, or null if no duplicates were recorded
+     */
+    public LogEntry createSummaryEntry(LogEntry entry) {
+        int repeatCount = getAndResetRepeatCount(entry);
+
+        if (repeatCount <= 1) {
+            return null; // No duplicates to summarize
+        }
+
+        return LogEntry.builder()
+                .timestamp(entry.getTimestamp())
+                .level(entry.getLevel())
+                .traceId(entry.getTraceId())
+                .spanId(entry.getSpanId())
+                .context(entry.getContext())
+                .message(entry.getMessage() + " [repeated]")
+                .payload(entry.getPayload())
+                .integrity(entry.getIntegrity())
+                .encryptedDek(entry.getEncryptedDek())
+                .repeatCount(repeatCount)
+                .throwable(entry.getThrowable())
+                .build();
+    }
+
+    /**
      * Clear cache (for testing)
      */
     public void clear() {

@@ -59,6 +59,18 @@ public class LogSerializer {
         try {
             // Step 1: Decompress with Zstd
             long originalSize = Zstd.decompressedSize(data);
+
+            // Validate size to prevent integer overflow
+            if (originalSize > Integer.MAX_VALUE) {
+                throw new SerializationException(
+                        "Decompressed size exceeds maximum allowed: " + originalSize +
+                                " bytes (max: " + Integer.MAX_VALUE + " bytes)", null);
+            }
+            if (originalSize < 0) {
+                throw new SerializationException(
+                        "Invalid decompressed size: " + originalSize + " (corrupted data?)", null);
+            }
+
             byte[] decompressed = Zstd.decompress(data, (int) originalSize);
 
             // Step 2: Parse JSON

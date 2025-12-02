@@ -170,11 +170,23 @@ public class LogTransport {
 
     /**
      * Secure delete: overwrite then delete
+     * Uses chunked approach to handle files > 2GB without integer overflow
      */
     private void secureDelete(Path file) throws IOException {
-        // Overwrite with random data
-        byte[] zeros = new byte[(int) Files.size(file)];
-        Files.write(file, zeros, StandardOpenOption.WRITE);
+        long fileSize = Files.size(file);
+        // Use fixed buffer size to avoid integer overflow for large files
+        final int BUFFER_SIZE = 8192;
+        byte[] zeros = new byte[BUFFER_SIZE];
+
+        try (var channel = Files.newByteChannel(file,
+                StandardOpenOption.WRITE, StandardOpenOption.SYNC)) {
+            long remaining = fileSize;
+            while (remaining > 0) {
+                int toWrite = (int) Math.min(remaining, BUFFER_SIZE);
+                channel.write(java.nio.ByteBuffer.wrap(zeros, 0, toWrite));
+                remaining -= toWrite;
+            }
+        }
 
         // Delete file
         Files.delete(file);

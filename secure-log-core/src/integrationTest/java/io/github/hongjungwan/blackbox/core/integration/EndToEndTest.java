@@ -10,7 +10,7 @@ import io.github.hongjungwan.blackbox.core.security.EnvelopeEncryption;
 import io.github.hongjungwan.blackbox.core.security.KmsClient;
 import io.github.hongjungwan.blackbox.core.internal.LogSerializer;
 import io.github.hongjungwan.blackbox.core.internal.KafkaProducer;
-import io.github.hongjungwan.blackbox.core.internal.LogTransport;
+import io.github.hongjungwan.blackbox.core.internal.ResilientLogTransport;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
@@ -50,7 +50,7 @@ class EndToEndTest {
 
     private Path tempDir;
     private LogProcessor processor;
-    private LogTransport transport;
+    private ResilientLogTransport transport;
     private SecureLogConfig config;
     private LogSerializer serializer;
 
@@ -74,7 +74,7 @@ class EndToEndTest {
                 .build();
 
         serializer = new LogSerializer();
-        transport = new LogTransport(config, serializer);
+        transport = new ResilientLogTransport(config, serializer);
 
         PiiMasker piiMasker = new PiiMasker(config);
         KmsClient kmsClient = new KmsClient(config);

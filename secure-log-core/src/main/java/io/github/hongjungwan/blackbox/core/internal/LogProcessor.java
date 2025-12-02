@@ -7,7 +7,7 @@ import io.github.hongjungwan.blackbox.core.security.EnvelopeEncryption;
 import io.github.hongjungwan.blackbox.core.internal.MerkleChain;
 import io.github.hongjungwan.blackbox.core.internal.SemanticDeduplicator;
 import io.github.hongjungwan.blackbox.core.internal.LogSerializer;
-import io.github.hongjungwan.blackbox.core.internal.LogTransport;
+import io.github.hongjungwan.blackbox.core.internal.ResilientLogTransport;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -22,7 +22,7 @@ public class LogProcessor {
     private final MerkleChain merkleChain;
     private final SemanticDeduplicator deduplicator;
     private final LogSerializer serializer;
-    private final LogTransport transport;
+    private final ResilientLogTransport transport;
 
     public LogProcessor(
             SecureLogConfig config,
@@ -31,7 +31,7 @@ public class LogProcessor {
             MerkleChain merkleChain,
             SemanticDeduplicator deduplicator,
             LogSerializer serializer,
-            LogTransport transport
+            ResilientLogTransport transport
     ) {
         this.config = config;
         this.piiMasker = piiMasker;

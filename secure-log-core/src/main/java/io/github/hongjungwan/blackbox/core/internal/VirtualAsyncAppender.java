@@ -11,6 +11,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
 
 /**
@@ -39,8 +40,8 @@ public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEve
     // Consumer thread reference
     private Thread consumerThread;
 
-    // Backpressure metrics
-    private volatile long droppedEvents = 0;
+    // Backpressure metrics - use AtomicLong to prevent race conditions
+    private final AtomicLong droppedEvents = new AtomicLong(0);
 
     public VirtualAsyncAppender(SecureLogConfig config, LogProcessor processor) {
         this.config = config;
@@ -80,7 +81,7 @@ public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEve
             }
 
             super.stop();
-            addInfo("VirtualAsyncAppender stopped. Dropped events: " + droppedEvents);
+            addInfo("VirtualAsyncAppender stopped. Dropped events: " + droppedEvents.get());
         }
     }
 
@@ -148,12 +149,12 @@ public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEve
      * Handle backpressure when buffer is full
      */
     private void handleBackpressure(ILoggingEvent event) {
-        droppedEvents++;
+        long dropped = droppedEvents.incrementAndGet();
 
         // Option 1: Drop (current implementation)
         // Option 2: Write to fallback file synchronously
-        if (droppedEvents % 1000 == 0) {
-            addWarn("Buffer full. Dropped " + droppedEvents + " events so far.");
+        if (dropped % 1000 == 0) {
+            addWarn("Buffer full. Dropped " + dropped + " events so far.");
         }
 
         // Could implement fallback here
@@ -161,7 +162,7 @@ public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEve
     }
 
     public long getDroppedEvents() {
-        return droppedEvents;
+        return droppedEvents.get();
     }
 
     public int getQueueSize() {

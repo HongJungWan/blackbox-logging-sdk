@@ -15,7 +15,13 @@ import software.amazon.awssdk.services.sts.model.AssumeRoleResponse;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.concurrent.locks.ReentrantLock;
@@ -39,6 +45,11 @@ public class KmsClient implements AutoCloseable {
     private volatile SecretKey cachedKek;
     private volatile long kekCacheTime;
     private static final long KEK_CACHE_TTL_MS = 300_000; // 5 minutes
+
+    // Fallback KEK persistence
+    private static final String FALLBACK_KEK_FILENAME = ".secure-hr-fallback-kek";
+    private static final String FALLBACK_SEED_FILENAME = ".secure-hr-fallback-seed";
+    private volatile SecretKey persistedFallbackKek;
 
     public KmsClient(SecureLogConfig config) {
         this.config = config;
@@ -201,17 +212,137 @@ public class KmsClient implements AutoCloseable {
     }
 
     /**
-     * Generate fallback KEK for development/testing.
+     * Generate or load fallback KEK for development/testing.
      * WARNING: NOT secure for production use.
+     *
+     * This implementation persists the fallback KEK to prevent data loss across restarts.
+     * On startup, it tries to load an existing KEK before generating a new one.
      */
     private SecretKey generateFallbackKek() {
-        try {
-            KeyGenerator keyGen = KeyGenerator.getInstance("AES");
-            keyGen.init(256);
-            return keyGen.generateKey();
-        } catch (NoSuchAlgorithmException e) {
-            throw new KmsException("Failed to generate fallback KEK", e);
+        // Return cached fallback KEK if available
+        if (persistedFallbackKek != null) {
+            return persistedFallbackKek;
         }
+
+        lock.lock();
+        try {
+            // Double-check after acquiring lock
+            if (persistedFallbackKek != null) {
+                return persistedFallbackKek;
+            }
+
+            // Try to load existing fallback KEK from file
+            SecretKey loadedKek = loadFallbackKek();
+            if (loadedKek != null) {
+                persistedFallbackKek = loadedKek;
+                log.warn("Loaded existing fallback KEK from file - THIS IS NOT SECURE FOR PRODUCTION");
+                return persistedFallbackKek;
+            }
+
+            // Generate new fallback KEK using deterministic key derivation from seed
+            SecretKey newKek = generateAndPersistFallbackKek();
+            persistedFallbackKek = newKek;
+            return persistedFallbackKek;
+
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * Load fallback KEK from persistent storage.
+     */
+    private SecretKey loadFallbackKek() {
+        Path kekPath = getFallbackKekPath();
+        if (!Files.exists(kekPath)) {
+            return null;
+        }
+
+        try {
+            byte[] keyBytes = Files.readAllBytes(kekPath);
+            if (keyBytes.length != 32) { // AES-256 = 32 bytes
+                log.warn("Invalid fallback KEK file size, will regenerate");
+                return null;
+            }
+            return new SecretKeySpec(keyBytes, "AES");
+        } catch (IOException e) {
+            log.warn("Failed to load fallback KEK from file: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Generate new fallback KEK and persist it to file.
+     */
+    private SecretKey generateAndPersistFallbackKek() {
+        try {
+            // Try to use seed-based derivation for consistency
+            Path seedPath = getFallbackSeedPath();
+            byte[] seed;
+
+            if (Files.exists(seedPath)) {
+                seed = Files.readAllBytes(seedPath);
+            } else {
+                // Generate new seed
+                seed = new byte[32];
+                new SecureRandom().nextBytes(seed);
+                Files.write(seedPath, seed,
+                        StandardOpenOption.CREATE,
+                        StandardOpenOption.WRITE,
+                        StandardOpenOption.TRUNCATE_EXISTING);
+                log.warn("Created new fallback seed file at: {} - PROTECT THIS FILE", seedPath);
+            }
+
+            // Derive key from seed using simple HKDF-like expansion
+            KeyGenerator keyGen = KeyGenerator.getInstance("AES");
+            SecureRandom seededRandom = SecureRandom.getInstance("SHA1PRNG");
+            seededRandom.setSeed(seed);
+            keyGen.init(256, seededRandom);
+            SecretKey key = keyGen.generateKey();
+
+            // Persist the KEK
+            Path kekPath = getFallbackKekPath();
+            Files.write(kekPath, key.getEncoded(),
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.WRITE,
+                    StandardOpenOption.TRUNCATE_EXISTING);
+
+            log.warn("Generated and persisted new fallback KEK to: {} - THIS IS NOT SECURE FOR PRODUCTION", kekPath);
+            return key;
+
+        } catch (NoSuchAlgorithmException | IOException e) {
+            // Last resort: generate ephemeral key (will cause data loss on restart)
+            log.error("Failed to persist fallback KEK, using ephemeral key - DATA LOSS ON RESTART", e);
+            try {
+                KeyGenerator keyGen = KeyGenerator.getInstance("AES");
+                keyGen.init(256);
+                return keyGen.generateKey();
+            } catch (NoSuchAlgorithmException ex) {
+                throw new KmsException("Failed to generate fallback KEK", ex);
+            }
+        }
+    }
+
+    /**
+     * Get path for fallback KEK file.
+     */
+    private Path getFallbackKekPath() {
+        String fallbackDir = config.getFallbackDirectory();
+        if (fallbackDir != null && !fallbackDir.isBlank()) {
+            return Paths.get(fallbackDir, FALLBACK_KEK_FILENAME);
+        }
+        return Paths.get(System.getProperty("user.home"), FALLBACK_KEK_FILENAME);
+    }
+
+    /**
+     * Get path for fallback seed file.
+     */
+    private Path getFallbackSeedPath() {
+        String fallbackDir = config.getFallbackDirectory();
+        if (fallbackDir != null && !fallbackDir.isBlank()) {
+            return Paths.get(fallbackDir, FALLBACK_SEED_FILENAME);
+        }
+        return Paths.get(System.getProperty("user.home"), FALLBACK_SEED_FILENAME);
     }
 
     /**

@@ -12,8 +12,11 @@ import java.util.Map;
  * Default SecureLogger implementation using SLF4J.
  *
  * <p>Automatically integrates with LoggingContext for trace propagation.</p>
+ * <p>Payload is preserved in MDC under "secure.payload" key to avoid loss during SLF4J formatting.</p>
  */
 public class DefaultSecureLogger implements SecureLogger {
+
+    private static final String PAYLOAD_MDC_KEY = "secure.payload";
 
     private final Logger delegate;
     private final String name;
@@ -30,7 +33,7 @@ public class DefaultSecureLogger implements SecureLogger {
 
     @Override
     public void trace(String message, Map<String, Object> payload) {
-        withContext(() -> delegate.trace("{} {}", message, payload));
+        withContextAndPayload(payload, () -> delegate.trace(message));
     }
 
     @Override
@@ -40,7 +43,7 @@ public class DefaultSecureLogger implements SecureLogger {
 
     @Override
     public void debug(String message, Map<String, Object> payload) {
-        withContext(() -> delegate.debug("{} {}", message, payload));
+        withContextAndPayload(payload, () -> delegate.debug(message));
     }
 
     @Override
@@ -50,7 +53,7 @@ public class DefaultSecureLogger implements SecureLogger {
 
     @Override
     public void info(String message, Map<String, Object> payload) {
-        withContext(() -> delegate.info("{} {}", message, payload));
+        withContextAndPayload(payload, () -> delegate.info(message));
     }
 
     @Override
@@ -60,7 +63,7 @@ public class DefaultSecureLogger implements SecureLogger {
 
     @Override
     public void warn(String message, Map<String, Object> payload) {
-        withContext(() -> delegate.warn("{} {}", message, payload));
+        withContextAndPayload(payload, () -> delegate.warn(message));
     }
 
     @Override
@@ -75,7 +78,7 @@ public class DefaultSecureLogger implements SecureLogger {
 
     @Override
     public void error(String message, Map<String, Object> payload) {
-        withContext(() -> delegate.error("{} {}", message, payload));
+        withContextAndPayload(payload, () -> delegate.error(message));
     }
 
     @Override
@@ -85,7 +88,7 @@ public class DefaultSecureLogger implements SecureLogger {
 
     @Override
     public void error(String message, Throwable throwable, Map<String, Object> payload) {
-        withContext(() -> delegate.error("{} {} - {}", message, payload, throwable));
+        withContextAndPayload(payload, () -> delegate.error(message, throwable));
     }
 
     @Override
@@ -135,5 +138,55 @@ public class DefaultSecureLogger implements SecureLogger {
             // Clear MDC values
             mdcValues.keySet().forEach(MDC::remove);
         }
+    }
+
+    /**
+     * Execute with LoggingContext and payload propagated to MDC.
+     * Payload is stored as JSON string in MDC to preserve it for downstream processing.
+     */
+    private void withContextAndPayload(Map<String, Object> payload, Runnable action) {
+        LoggingContext ctx = LoggingContext.current();
+        Map<String, String> mdcValues = ctx.toMdc();
+
+        try {
+            // Set MDC values
+            mdcValues.forEach(MDC::put);
+
+            // Store payload in MDC as JSON-like string to preserve it
+            if (payload != null && !payload.isEmpty()) {
+                MDC.put(PAYLOAD_MDC_KEY, convertPayloadToString(payload));
+            }
+
+            // Execute
+            action.run();
+        } finally {
+            // Clear MDC values
+            mdcValues.keySet().forEach(MDC::remove);
+            MDC.remove(PAYLOAD_MDC_KEY);
+        }
+    }
+
+    /**
+     * Convert payload map to a string representation for MDC storage.
+     * Uses a simple JSON-like format for readability.
+     */
+    private String convertPayloadToString(Map<String, Object> payload) {
+        StringBuilder sb = new StringBuilder("{");
+        boolean first = true;
+        for (Map.Entry<String, Object> entry : payload.entrySet()) {
+            if (!first) {
+                sb.append(", ");
+            }
+            first = false;
+            sb.append("\"").append(entry.getKey()).append("\": ");
+            Object value = entry.getValue();
+            if (value instanceof String) {
+                sb.append("\"").append(value).append("\"");
+            } else {
+                sb.append(value);
+            }
+        }
+        sb.append("}");
+        return sb.toString();
     }
 }

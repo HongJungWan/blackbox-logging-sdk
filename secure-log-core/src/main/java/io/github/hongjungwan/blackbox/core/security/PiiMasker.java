@@ -97,11 +97,14 @@ public class PiiMasker {
             String key = entry.getKey();
             Object value = entry.getValue();
 
-            // Check if field needs masking
+            // Check if field needs masking by name
             MaskingStrategy strategy = strategies.get(key.toLowerCase());
 
             if (strategy != null && value instanceof String) {
                 masked.put(key, strategy.mask((String) value));
+            } else if (value instanceof String) {
+                // Auto-detect PII patterns in string values
+                masked.put(key, maskPiiInValue((String) value));
             } else if (value instanceof Map) {
                 @SuppressWarnings("unchecked")
                 Map<String, Object> nestedMap = (Map<String, Object>) value;
@@ -112,6 +115,111 @@ public class PiiMasker {
         }
 
         return masked;
+    }
+
+    /**
+     * Scan a string value for PII patterns and mask them.
+     * Uses pre-compiled patterns for efficiency.
+     *
+     * @param value the string value to scan
+     * @return the value with detected PII masked
+     */
+    public String maskPiiInValue(String value) {
+        if (value == null || value.isEmpty()) {
+            return value;
+        }
+
+        String result = value;
+
+        // Check for RRN pattern (Korean Resident Registration Number)
+        if (RRN_PATTERN.matcher(result).find()) {
+            result = maskRrnInString(result);
+        }
+
+        // Check for credit card pattern
+        if (CREDIT_CARD_PATTERN.matcher(result).find()) {
+            result = maskCreditCardInString(result);
+        }
+
+        // Check for SSN pattern (US Social Security Number)
+        if (SSN_PATTERN.matcher(result).find()) {
+            result = maskSsnInString(result);
+        }
+
+        return result;
+    }
+
+    /**
+     * Mask RRN patterns in a string using char array manipulation.
+     */
+    private String maskRrnInString(String value) {
+        java.util.regex.Matcher matcher = RRN_PATTERN.matcher(value);
+        StringBuilder result = new StringBuilder();
+        int lastEnd = 0;
+
+        while (matcher.find()) {
+            result.append(value, lastEnd, matcher.start());
+            String matched = matcher.group();
+            // Mask: keep first 6 digits and hyphen, mask rest
+            char[] chars = matched.toCharArray();
+            for (int i = 7; i < chars.length; i++) {
+                chars[i] = '*';
+            }
+            result.append(chars);
+            lastEnd = matcher.end();
+        }
+        result.append(value.substring(lastEnd));
+        return result.toString();
+    }
+
+    /**
+     * Mask credit card patterns in a string using char array manipulation.
+     */
+    private String maskCreditCardInString(String value) {
+        java.util.regex.Matcher matcher = CREDIT_CARD_PATTERN.matcher(value);
+        StringBuilder result = new StringBuilder();
+        int lastEnd = 0;
+
+        while (matcher.find()) {
+            result.append(value, lastEnd, matcher.start());
+            String matched = matcher.group();
+            // Mask all but last 4 digits
+            char[] chars = matched.toCharArray();
+            for (int i = 0; i < chars.length - 4; i++) {
+                if (Character.isDigit(chars[i])) {
+                    chars[i] = '*';
+                }
+            }
+            result.append(chars);
+            lastEnd = matcher.end();
+        }
+        result.append(value.substring(lastEnd));
+        return result.toString();
+    }
+
+    /**
+     * Mask SSN patterns in a string using char array manipulation.
+     */
+    private String maskSsnInString(String value) {
+        java.util.regex.Matcher matcher = SSN_PATTERN.matcher(value);
+        StringBuilder result = new StringBuilder();
+        int lastEnd = 0;
+
+        while (matcher.find()) {
+            result.append(value, lastEnd, matcher.start());
+            String matched = matcher.group();
+            // Mask first 7 characters (XXX-XX-XXXX format)
+            char[] chars = matched.toCharArray();
+            for (int i = 0; i < 7; i++) {
+                if (Character.isDigit(chars[i])) {
+                    chars[i] = '*';
+                }
+            }
+            result.append(chars);
+            lastEnd = matcher.end();
+        }
+        result.append(value.substring(lastEnd));
+        return result.toString();
     }
 
     /**

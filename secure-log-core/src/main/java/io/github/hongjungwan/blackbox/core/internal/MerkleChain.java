@@ -2,7 +2,11 @@ package io.github.hongjungwan.blackbox.core.internal;
 
 import io.github.hongjungwan.blackbox.api.domain.LogEntry;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
@@ -96,6 +100,99 @@ public class MerkleChain {
         lock.lock();
         try {
             previousHash = "0000000000000000000000000000000000000000000000000000000000000000";
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * Save the current chain state to a file.
+     * This allows preserving chain integrity across restarts.
+     *
+     * @param path the path to save the state to
+     * @throws IOException if writing fails
+     */
+    public void saveState(Path path) throws IOException {
+        lock.lock();
+        try {
+            String state = previousHash;
+            Files.writeString(path, state,
+                    StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.WRITE,
+                    StandardOpenOption.TRUNCATE_EXISTING);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * Load the chain state from a file.
+     * This restores the chain to continue from where it left off.
+     *
+     * @param path the path to load the state from
+     * @throws IOException if reading fails or file doesn't exist
+     */
+    public void loadState(Path path) throws IOException {
+        lock.lock();
+        try {
+            if (!Files.exists(path)) {
+                throw new IOException("Chain state file not found: " + path);
+            }
+
+            String state = Files.readString(path, StandardCharsets.UTF_8).trim();
+
+            // Validate hash format (64 hex characters for SHA-256)
+            if (state.length() != 64 || !state.matches("[0-9a-fA-F]+")) {
+                throw new IOException("Invalid chain state format: expected 64 hex characters");
+            }
+
+            previousHash = state.toLowerCase();
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * Try to load chain state from file, returning true if successful.
+     * If the file doesn't exist or is invalid, the chain is reset to genesis state.
+     *
+     * @param path the path to load the state from
+     * @return true if state was loaded successfully, false if chain was reset
+     */
+    public boolean tryLoadState(Path path) {
+        lock.lock();
+        try {
+            if (!Files.exists(path)) {
+                return false;
+            }
+
+            String state = Files.readString(path, StandardCharsets.UTF_8).trim();
+
+            // Validate hash format (64 hex characters for SHA-256)
+            if (state.length() != 64 || !state.matches("[0-9a-fA-F]+")) {
+                return false;
+            }
+
+            previousHash = state.toLowerCase();
+            return true;
+
+        } catch (IOException e) {
+            return false;
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * Get the current chain hash (for inspection/debugging).
+     *
+     * @return the current previous hash value
+     */
+    public String getCurrentHash() {
+        lock.lock();
+        try {
+            return previousHash;
         } finally {
             lock.unlock();
         }

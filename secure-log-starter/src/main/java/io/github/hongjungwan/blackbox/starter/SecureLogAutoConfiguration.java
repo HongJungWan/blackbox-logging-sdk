@@ -10,7 +10,7 @@ import io.github.hongjungwan.blackbox.core.internal.LogProcessor;
 import io.github.hongjungwan.blackbox.core.security.EnvelopeEncryption;
 import io.github.hongjungwan.blackbox.core.security.KmsClient;
 import io.github.hongjungwan.blackbox.core.internal.LogSerializer;
-import io.github.hongjungwan.blackbox.core.internal.LogTransport;
+import io.github.hongjungwan.blackbox.core.internal.ResilientLogTransport;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -90,8 +90,8 @@ public class SecureLogAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public LogTransport logTransport(SecureLogConfig config, LogSerializer serializer) {
-        return new LogTransport(config, serializer);
+    public ResilientLogTransport logTransport(SecureLogConfig config, LogSerializer serializer) {
+        return new ResilientLogTransport(config, serializer);
     }
 
     @Bean
@@ -103,7 +103,7 @@ public class SecureLogAutoConfiguration {
             MerkleChain merkleChain,
             SemanticDeduplicator deduplicator,
             LogSerializer serializer,
-            LogTransport transport
+            ResilientLogTransport transport
     ) {
         return new LogProcessor(config, piiMasker, encryption, merkleChain, deduplicator, serializer, transport);
     }
