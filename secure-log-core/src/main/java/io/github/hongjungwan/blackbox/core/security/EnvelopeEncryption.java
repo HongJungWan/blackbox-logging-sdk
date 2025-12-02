@@ -1,5 +1,8 @@
 package io.github.hongjungwan.blackbox.core.security;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.hongjungwan.blackbox.api.config.SecureLogConfig;
 import io.github.hongjungwan.blackbox.api.domain.LogEntry;
 import lombok.extern.slf4j.Slf4j;
@@ -43,6 +46,10 @@ public class EnvelopeEncryption {
     private static final int GCM_TAG_LENGTH = 128;
     private static final int GCM_IV_LENGTH = 12;
     private static final int KEY_SIZE = 256;
+
+    // Jackson ObjectMapper for JSON serialization (thread-safe, reusable)
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final TypeReference<Map<String, Object>> MAP_TYPE_REF = new TypeReference<>() {};
 
     private final SecureLogConfig config;
     private final KmsClient kmsClient;
@@ -212,9 +219,19 @@ public class EnvelopeEncryption {
         }
     }
 
-    private String serializePayload(java.util.Map<String, Object> payload) {
-        // Simple JSON serialization (should use Jackson in production)
-        return payload != null ? payload.toString() : "{}";
+    /**
+     * Serialize payload to JSON string using Jackson.
+     */
+    private String serializePayload(Map<String, Object> payload) {
+        if (payload == null || payload.isEmpty()) {
+            return "{}";
+        }
+        try {
+            return OBJECT_MAPPER.writeValueAsString(payload);
+        } catch (JsonProcessingException e) {
+            log.error("Failed to serialize payload to JSON", e);
+            throw new EncryptionException("Failed to serialize payload", e);
+        }
     }
 
     /**
@@ -284,9 +301,19 @@ public class EnvelopeEncryption {
         return cipher.doFinal(ciphertext);
     }
 
-    private java.util.Map<String, Object> deserializePayload(String json) {
-        // Simple deserialization (should use Jackson in production)
-        return java.util.Map.of();
+    /**
+     * Deserialize JSON string to payload Map using Jackson.
+     */
+    private Map<String, Object> deserializePayload(String json) {
+        if (json == null || json.isBlank() || "{}".equals(json)) {
+            return Map.of();
+        }
+        try {
+            return OBJECT_MAPPER.readValue(json, MAP_TYPE_REF);
+        } catch (JsonProcessingException e) {
+            log.error("Failed to deserialize payload from JSON: {}", json, e);
+            throw new EncryptionException("Failed to deserialize payload", e);
+        }
     }
 
     public static class EncryptionException extends RuntimeException {
