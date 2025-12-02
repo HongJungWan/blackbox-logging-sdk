@@ -90,8 +90,26 @@ public class PiiMasker {
                 .build();
     }
 
+    /**
+     * Mask PII fields in a map recursively.
+     *
+     * <p>NOTE: Zero-Allocation Trade-off</p>
+     * <p>This method creates a new HashMap for each call, which deviates from the zero-allocation
+     * design principle. This is an intentional trade-off because:</p>
+     * <ul>
+     *   <li>Immutability: We cannot modify the original map as it may be shared or immutable</li>
+     *   <li>Safety: Creating a copy prevents concurrent modification issues</li>
+     *   <li>Complexity: Object pooling for nested Map structures adds significant complexity</li>
+     * </ul>
+     * <p>For high-throughput scenarios where this becomes a bottleneck, consider:</p>
+     * <ul>
+     *   <li>Pre-masking data at the source before logging</li>
+     *   <li>Using a custom LogEntry builder that accepts pre-masked payloads</li>
+     *   <li>Implementing a thread-local map pool (with careful size management)</li>
+     * </ul>
+     */
     private Map<String, Object> maskMap(Map<String, Object> map) {
-        Map<String, Object> masked = new HashMap<>();
+        Map<String, Object> masked = new HashMap<>(map.size());
 
         for (Map.Entry<String, Object> entry : map.entrySet()) {
             String key = entry.getKey();

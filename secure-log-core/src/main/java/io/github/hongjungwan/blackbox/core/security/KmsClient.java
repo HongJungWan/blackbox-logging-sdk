@@ -20,6 +20,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.PosixFilePermission;
+import java.util.EnumSet;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.Duration;
@@ -290,6 +292,10 @@ public class KmsClient implements AutoCloseable {
                         StandardOpenOption.CREATE,
                         StandardOpenOption.WRITE,
                         StandardOpenOption.TRUNCATE_EXISTING);
+
+                // Set restrictive file permissions (owner-only read/write)
+                setRestrictivePermissions(seedPath);
+
                 log.warn("Created new fallback seed file at: {} - PROTECT THIS FILE", seedPath);
             }
 
@@ -306,6 +312,9 @@ public class KmsClient implements AutoCloseable {
                     StandardOpenOption.CREATE,
                     StandardOpenOption.WRITE,
                     StandardOpenOption.TRUNCATE_EXISTING);
+
+            // Set restrictive file permissions (owner-only read/write)
+            setRestrictivePermissions(kekPath);
 
             log.warn("Generated and persisted new fallback KEK to: {} - THIS IS NOT SECURE FOR PRODUCTION", kekPath);
             return key;
@@ -343,6 +352,29 @@ public class KmsClient implements AutoCloseable {
             return Paths.get(fallbackDir, FALLBACK_SEED_FILENAME);
         }
         return Paths.get(System.getProperty("user.home"), FALLBACK_SEED_FILENAME);
+    }
+
+    /**
+     * Set restrictive file permissions (owner-only read/write, chmod 600).
+     * This protects sensitive key material from being read by other users.
+     *
+     * @param path the file path to set permissions on
+     */
+    private void setRestrictivePermissions(Path path) {
+        try {
+            java.util.Set<PosixFilePermission> permissions = EnumSet.of(
+                    PosixFilePermission.OWNER_READ,
+                    PosixFilePermission.OWNER_WRITE
+            );
+            Files.setPosixFilePermissions(path, permissions);
+            log.debug("Set restrictive permissions (600) on: {}", path);
+        } catch (java.lang.UnsupportedOperationException e) {
+            // Windows and some file systems don't support POSIX permissions
+            log.warn("Cannot set POSIX file permissions on {} - file system does not support POSIX permissions. " +
+                    "Ensure proper file security through OS-level access controls.", path);
+        } catch (IOException e) {
+            log.warn("Failed to set restrictive permissions on {}: {}", path, e.getMessage());
+        }
     }
 
     /**

@@ -40,6 +40,51 @@ public class LogProcessor {
         this.deduplicator = deduplicator;
         this.serializer = serializer;
         this.transport = transport;
+
+        // Register callback for deduplication summary logs
+        // When deduplication window expires, summary logs are processed through the pipeline
+        if (config.isDeduplicationEnabled()) {
+            deduplicator.setSummaryCallback(this::processSummaryEntry);
+        }
+    }
+
+    /**
+     * Process a summary entry from deduplication (skips deduplication step)
+     */
+    private void processSummaryEntry(LogEntry summaryEntry) {
+        try {
+            // Summary entries bypass deduplication (Step 1 skipped)
+
+            // Step 2: PII Masking
+            LogEntry maskedEntry = summaryEntry;
+            if (config.isPiiMaskingEnabled()) {
+                maskedEntry = piiMasker.mask(summaryEntry);
+            }
+
+            // Step 3: Merkle Chain Integrity
+            LogEntry chainedEntry = maskedEntry;
+            if (config.isIntegrityEnabled()) {
+                chainedEntry = merkleChain.addToChain(maskedEntry);
+            }
+
+            // Step 4: Envelope Encryption
+            LogEntry encryptedEntry = chainedEntry;
+            if (config.isEncryptionEnabled()) {
+                encryptedEntry = encryption.encrypt(chainedEntry);
+            }
+
+            // Step 5: Serialize
+            byte[] serialized = serializer.serialize(encryptedEntry);
+
+            // Step 6: Transport
+            transport.send(serialized);
+
+            log.debug("Emitted deduplication summary log with repeat_count={}", summaryEntry.getRepeatCount());
+
+        } catch (Exception e) {
+            log.error("Error processing deduplication summary entry", e);
+            handleProcessingError(summaryEntry, e);
+        }
     }
 
     /**

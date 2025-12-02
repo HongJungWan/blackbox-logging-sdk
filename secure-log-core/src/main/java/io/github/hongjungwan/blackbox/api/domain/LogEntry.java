@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;
 import lombok.Builder;
 import lombok.Getter;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -121,7 +122,19 @@ public class LogEntry {
         return Map.copyOf(event.getMDCPropertyMap());
     }
 
+    private static final String PAYLOAD_MDC_KEY = "secure.payload";
+
     private static Map<String, Object> extractPayload(ch.qos.logback.classic.spi.ILoggingEvent event) {
+        // First, check MDC for "secure.payload" key (set by DefaultSecureLogger)
+        String mdcPayload = event.getMDCPropertyMap().get(PAYLOAD_MDC_KEY);
+        if (mdcPayload != null && !mdcPayload.isEmpty()) {
+            Map<String, Object> parsed = parsePayloadFromMdc(mdcPayload);
+            if (parsed != null && !parsed.isEmpty()) {
+                return parsed;
+            }
+        }
+
+        // Fall back to checking argumentArray
         Object[] args = event.getArgumentArray();
         if (args != null && args.length > 0 && args[args.length - 1] instanceof Map) {
             @SuppressWarnings("unchecked")
@@ -129,6 +142,118 @@ public class LogEntry {
             return payload;
         }
         return Map.of();
+    }
+
+    /**
+     * Parse payload from MDC string representation.
+     * Handles the simple JSON-like format produced by DefaultSecureLogger.convertPayloadToString().
+     * Format: {"key1": "value1", "key2": value2}
+     */
+    private static Map<String, Object> parsePayloadFromMdc(String mdcPayload) {
+        if (mdcPayload == null || mdcPayload.length() < 2) {
+            return null;
+        }
+
+        // Remove outer braces
+        String content = mdcPayload.trim();
+        if (!content.startsWith("{") || !content.endsWith("}")) {
+            return null;
+        }
+        content = content.substring(1, content.length() - 1).trim();
+
+        if (content.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<String, Object> result = new HashMap<>();
+
+        // Simple parser for key-value pairs
+        // This handles the format: "key1": "value1", "key2": value2
+        int i = 0;
+        while (i < content.length()) {
+            // Skip whitespace
+            while (i < content.length() && Character.isWhitespace(content.charAt(i))) {
+                i++;
+            }
+
+            if (i >= content.length()) break;
+
+            // Expect opening quote for key
+            if (content.charAt(i) != '"') break;
+            i++;
+
+            // Read key
+            int keyStart = i;
+            while (i < content.length() && content.charAt(i) != '"') {
+                i++;
+            }
+            if (i >= content.length()) break;
+            String key = content.substring(keyStart, i);
+            i++; // skip closing quote
+
+            // Skip ": "
+            while (i < content.length() && (content.charAt(i) == ':' || Character.isWhitespace(content.charAt(i)))) {
+                i++;
+            }
+
+            if (i >= content.length()) break;
+
+            // Read value
+            Object value;
+            if (content.charAt(i) == '"') {
+                // String value
+                i++; // skip opening quote
+                int valueStart = i;
+                while (i < content.length() && content.charAt(i) != '"') {
+                    i++;
+                }
+                value = content.substring(valueStart, i);
+                if (i < content.length()) i++; // skip closing quote
+            } else {
+                // Non-string value (number, boolean, null)
+                int valueStart = i;
+                while (i < content.length() && content.charAt(i) != ',' && content.charAt(i) != '}') {
+                    i++;
+                }
+                String valueStr = content.substring(valueStart, i).trim();
+                value = parseValue(valueStr);
+            }
+
+            result.put(key, value);
+
+            // Skip comma and whitespace
+            while (i < content.length() && (content.charAt(i) == ',' || Character.isWhitespace(content.charAt(i)))) {
+                i++;
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * Parse a non-string value from string representation.
+     */
+    private static Object parseValue(String valueStr) {
+        if (valueStr == null || valueStr.isEmpty() || "null".equals(valueStr)) {
+            return null;
+        }
+        if ("true".equalsIgnoreCase(valueStr)) {
+            return Boolean.TRUE;
+        }
+        if ("false".equalsIgnoreCase(valueStr)) {
+            return Boolean.FALSE;
+        }
+        // Try to parse as number
+        try {
+            if (valueStr.contains(".")) {
+                return Double.parseDouble(valueStr);
+            } else {
+                return Long.parseLong(valueStr);
+            }
+        } catch (NumberFormatException e) {
+            // Return as string if parsing fails
+            return valueStr;
+        }
     }
 
     private static String extractThrowable(ch.qos.logback.classic.spi.ILoggingEvent event) {

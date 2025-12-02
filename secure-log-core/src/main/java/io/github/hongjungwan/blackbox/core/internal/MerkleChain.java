@@ -13,11 +13,34 @@ import java.util.HexFormat;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * Merkle Tree-based integrity chain
- * Each log block includes hash of previous block (blockchain-style)
- * Prevents tampering and provides audit trail
+ * Merkle Tree-based integrity chain.
  *
- * Uses ReentrantLock for Virtual Thread compatibility
+ * <p>Each log block includes hash of previous block (blockchain-style).
+ * Prevents tampering and provides audit trail.</p>
+ *
+ * <p>Uses ReentrantLock for Virtual Thread compatibility.</p>
+ *
+ * <h2>Important: Distributed Deployment Limitation</h2>
+ * <p>This implementation provides <strong>per-instance integrity only</strong>.
+ * In distributed deployments with multiple application instances:</p>
+ * <ul>
+ *   <li>Each instance maintains its own independent chain</li>
+ *   <li>Cross-instance verification is NOT supported</li>
+ *   <li>Logs from different instances have separate integrity chains</li>
+ * </ul>
+ *
+ * <p>For cross-instance integrity verification in distributed systems, consider:</p>
+ * <ul>
+ *   <li>Using a centralized integrity service (e.g., dedicated Merkle tree service)</li>
+ *   <li>Including instance ID in log entries for per-instance chain identification</li>
+ *   <li>Using a distributed ledger or blockchain for enterprise-grade integrity</li>
+ * </ul>
+ *
+ * <h2>State Persistence</h2>
+ * <p>Use {@link #saveState(Path)} on shutdown and {@link #tryLoadState(Path)} on startup
+ * to maintain chain continuity across application restarts.</p>
+ *
+ * @since 8.0.0
  */
 public class MerkleChain {
 

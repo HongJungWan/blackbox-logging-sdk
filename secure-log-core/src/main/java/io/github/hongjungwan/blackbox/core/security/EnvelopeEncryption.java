@@ -203,19 +203,62 @@ public class EnvelopeEncryption {
     }
 
     /**
-     * Best-effort key destruction.
+     * Best-effort key destruction for crypto-shredding.
+     *
+     * <h2>JVM Limitation Warning</h2>
+     * <p>This method performs best-effort key destruction, but has inherent JVM limitations:</p>
+     * <ul>
+     *   <li>{@code key.getEncoded()} returns a <em>copy</em> of the key bytes, not the original.
+     *       Zeroing this copy does not affect the key material stored inside the SecretKey object.</li>
+     *   <li>The actual key material in {@code SecretKeySpec} is stored in a private final byte array
+     *       that cannot be directly accessed or zeroed without reflection.</li>
+     *   <li>Even with reflection, the JVM may have cached copies of the key in various places.</li>
+     * </ul>
+     *
+     * <h2>Mitigation Strategies</h2>
+     * <ul>
+     *   <li>The key is dereferenced and will be garbage collected, eventually overwritten</li>
+     *   <li>For true crypto-shredding, rely on KMS-managed DEK destruction</li>
+     *   <li>The encrypted DEK stored in logs becomes unrecoverable once the KEK is rotated/destroyed in KMS</li>
+     *   <li>For high-security requirements, consider using HSM-backed keys or off-heap memory</li>
+     * </ul>
+     *
+     * @param key the secret key to destroy
      */
     private void destroyKey(SecretKey key) {
+        if (key == null) {
+            return;
+        }
+
         try {
-            if (key instanceof javax.crypto.SecretKey) {
-                // Zero out key bytes (best effort)
-                byte[] keyBytes = key.getEncoded();
-                if (keyBytes != null) {
-                    java.util.Arrays.fill(keyBytes, (byte) 0);
+            // Try to use the Destroyable interface if the key supports it
+            if (key instanceof javax.security.auth.Destroyable) {
+                javax.security.auth.Destroyable destroyable = (javax.security.auth.Destroyable) key;
+                if (!destroyable.isDestroyed()) {
+                    try {
+                        destroyable.destroy();
+                        log.debug("Key destroyed via Destroyable interface");
+                        return;
+                    } catch (javax.security.auth.DestroyFailedException e) {
+                        // SecretKeySpec.destroy() throws DestroyFailedException by default
+                        // Fall through to best-effort approach
+                        log.trace("Destroyable.destroy() failed, using best-effort approach");
+                    }
                 }
             }
+
+            // Best-effort: zero out the copy of key bytes
+            // NOTE: This zeros a copy, not the original key material (see Javadoc above)
+            byte[] keyBytes = key.getEncoded();
+            if (keyBytes != null) {
+                java.util.Arrays.fill(keyBytes, (byte) 0);
+            }
+
+            // The key object will be garbage collected and eventually overwritten
+            // For stronger guarantees, use KMS key rotation to invalidate encrypted DEKs
+
         } catch (Exception e) {
-            log.warn("Failed to destroy key", e);
+            log.warn("Failed to destroy key: {}", e.getMessage());
         }
     }
 

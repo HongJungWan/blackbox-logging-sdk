@@ -82,12 +82,12 @@ Configured in `secure-log-core/build.gradle` using Gradle Shadow plugin.
 ### Processing Pipeline
 ```
 LogEvent → VirtualAsyncAppender → LogProcessor Pipeline:
-  1. Deduplication (SemanticDeduplicator)
-  2. PII Masking (PiiMasker)
-  3. Integrity Chain (MerkleChain)
-  4. Encryption (EnvelopeEncryption)
-  5. Serialization (LogSerializer - Zstd)
-  6. Transport (ResilientLogTransport - Kafka/Fallback)
+  1. Deduplication (SemanticDeduplicator) - with summary log emission on window expiry
+  2. PII Masking (PiiMasker) - field name + value pattern auto-detection
+  3. Integrity Chain (MerkleChain) - persisted on shutdown, restored on startup
+  4. Encryption (EnvelopeEncryption) - DEK rotation every 1 hour
+  5. Serialization (LogSerializer - Zstd) - 100MB payload limit
+  6. Transport (ResilientLogTransport - Kafka/Fallback) - categorized error handling
 ```
 
 ### Key Subsystems
@@ -112,10 +112,13 @@ LogEvent → VirtualAsyncAppender → LogProcessor Pipeline:
 - `MetricsExporter` - Prometheus/JSON format export
 
 ### Security Model
-- **Envelope Encryption**: DEK (AES-256-GCM) + KEK (from KMS)
-- **Integrity**: SHA-256 Hash Chain (blockchain-style chaining)
-- **Crypto-Shredding**: DEK destruction makes logs unrecoverable
-- **PII Masking**: Zero-allocation char array manipulation
+- **Envelope Encryption**: DEK (AES-256-GCM) + KEK (from KMS), 1-hour DEK rotation
+- **Integrity**: SHA-256 Hash Chain (blockchain-style chaining), persisted across restarts
+- **Crypto-Shredding**: DEK destruction via Destroyable interface (JVM limitations documented)
+- **PII Masking**: Zero-allocation char array manipulation + auto-detection patterns
+- **Fallback KEK**: POSIX file permissions (chmod 600) for development mode security
+
+**Note**: MerkleChain provides per-instance integrity only. In distributed deployments, consider a centralized integrity service.
 
 ### Enhanced Components
 - `EnhancedLogProcessor` - Pipeline with interceptors + metrics
@@ -149,6 +152,13 @@ processor.addPreProcessInterceptor("name", LogInterceptor.Priority.HIGH,
 - `CLOSED` - Normal operation, counting failures
 - `OPEN` - Failing fast to fallback, waiting for recovery timeout
 - `HALF_OPEN` - Testing recovery with limited calls
+
+### Kafka Error Categories
+KafkaProducer classifies errors for proper handling:
+- `AUTHENTICATION` / `AUTHORIZATION` - Non-retryable, requires config fix
+- `NETWORK` / `TIMEOUT` - Retryable with backoff
+- `RECORD_TOO_LARGE` - Non-retryable, log warning
+- `SERIALIZATION` - Non-retryable, likely bug
 
 ## Configuration Properties
 
