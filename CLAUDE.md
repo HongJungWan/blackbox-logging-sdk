@@ -16,6 +16,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Build all modules
 ./gradlew build
 
+# Clean build (useful for troubleshooting)
+./gradlew clean build
+
 # Build with dependency shading (Shadow JAR)
 ./gradlew shadowJar
 
@@ -39,11 +42,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Run integration tests (requires Docker for Testcontainers)
 ./gradlew integrationTest
 
-# Run unit tests only (excluding Testcontainers integration tests)
-./gradlew :secure-log-core:test --tests "io.github.hongjungwan.blackbox.core.context.*" \
-  --tests "io.github.hongjungwan.blackbox.core.resilience.*" \
-  --tests "io.github.hongjungwan.blackbox.core.interceptor.*" \
-  --tests "io.github.hongjungwan.blackbox.core.masking.*"
+# Run unit tests only (no Docker required)
+./gradlew :secure-log-core:test
 ```
 
 ## Project Structure
@@ -120,6 +120,14 @@ LogEvent → VirtualAsyncAppender → LogProcessor Pipeline:
 ### Enhanced Components
 - `EnhancedLogProcessor` - Pipeline with interceptors + metrics
 - `ResilientLogTransport` - Circuit breaker + retry + rate limiting
+
+### SPI (Extension Points) - `spi/` package
+Provider interfaces for customization without modifying core:
+- `EncryptionProvider` - Custom encryption implementations
+- `IntegrityProvider` - Custom integrity verification
+- `TransportProvider` - Custom log transport destinations
+- `MaskingStrategy` - Custom PII masking patterns
+- `LoggerProvider` - Custom logger implementations
 
 ## Implementation Guidelines
 
@@ -208,3 +216,13 @@ Docker services for integration tests:
 - LocalStack (KMS): `localhost:4566`
 
 Use `LogAssert` from `secure-log-test` module for fluent assertions.
+
+### Performance Benchmarks
+JMH benchmarks available in `secure-log-core/src/test/java/.../benchmark/`:
+```bash
+# Run benchmarks (requires building first)
+./gradlew :secure-log-core:test --tests "*Benchmark*"
+```
+- `LogProcessorBenchmark` - End-to-end processing throughput
+- `PiiMaskerBenchmark` - Masking performance
+- `SerializationBenchmark` - JSON/Zstd serialization
