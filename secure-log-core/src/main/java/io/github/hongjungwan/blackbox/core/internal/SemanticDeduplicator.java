@@ -9,6 +9,9 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.time.Duration;
 import java.util.Objects;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -24,7 +27,7 @@ import java.util.function.Consumer;
  * a summary log with repeat_count is emitted via the registered callback.
  */
 @Slf4j
-public class SemanticDeduplicator {
+public class SemanticDeduplicator implements AutoCloseable {
 
     private final SecureLogConfig config;
 
@@ -36,6 +39,10 @@ public class SemanticDeduplicator {
     // Callback for emitting summary logs when deduplication window expires
     private final AtomicReference<Consumer<LogEntry>> summaryCallback = new AtomicReference<>();
 
+    // Dedicated Virtual Thread executor for async summary emission
+    // Prevents eviction listener from blocking cache operations
+    private final ExecutorService summaryExecutor = Executors.newVirtualThreadPerTaskExecutor();
+
     public SemanticDeduplicator(SecureLogConfig config) {
         this.config = config;
 
@@ -43,9 +50,10 @@ public class SemanticDeduplicator {
                 .maximumSize(10_000) // Limit memory usage
                 .expireAfterWrite(Duration.ofMillis(config.getDeduplicationWindowMs()))
                 .evictionListener((LogSignature key, DeduplicationEntry entry, RemovalCause cause) -> {
-                    // Emit summary log when entry expires due to time window
+                    // Emit summary log asynchronously when entry expires due to time window
+                    // Using Virtual Thread executor to avoid blocking cache operations
                     if (entry != null && cause == RemovalCause.EXPIRED) {
-                        emitSummaryIfNeeded(key, entry);
+                        summaryExecutor.submit(() -> emitSummaryIfNeeded(key, entry));
                     }
                 })
                 .build();
@@ -112,9 +120,8 @@ public class SemanticDeduplicator {
 
         // First occurrence: not a duplicate
         // Note: count is 1 for the first call since we start at 0 and increment
+        // The firstEntry is already set in the DeduplicationEntry constructor
         if (count == 1) {
-            // Store the first entry for summary emission
-            dedup.setFirstEntry(entry);
             return false;
         }
 
@@ -188,6 +195,23 @@ public class SemanticDeduplicator {
      */
     public void clear() {
         cache.invalidateAll();
+    }
+
+    /**
+     * Shutdown the executor service gracefully.
+     * Waits for pending summary emissions to complete.
+     */
+    @Override
+    public void close() {
+        summaryExecutor.shutdown();
+        try {
+            if (!summaryExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                summaryExecutor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            summaryExecutor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 
     /**

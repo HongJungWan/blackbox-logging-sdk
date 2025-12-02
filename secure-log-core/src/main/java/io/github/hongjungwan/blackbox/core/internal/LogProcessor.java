@@ -139,4 +139,44 @@ public class LogProcessor {
             log.error("Failed to write to fallback", fallbackError);
         }
     }
+
+    /**
+     * Process a log entry directly to fallback storage.
+     * Used during shutdown to ensure no events are lost when buffer cannot be fully drained.
+     *
+     * @param entry the log entry to send to fallback
+     */
+    public void processFallback(LogEntry entry) {
+        try {
+            // Apply minimal processing before fallback
+            LogEntry processedEntry = entry;
+
+            // Step 1: PII Masking (critical for compliance)
+            if (config.isPiiMaskingEnabled()) {
+                processedEntry = piiMasker.mask(entry);
+            }
+
+            // Skip integrity chain and encryption for fallback (these require more complex state)
+            // The fallback data can be post-processed when replayed
+
+            // Send directly to fallback
+            transport.sendToFallback(processedEntry);
+        } catch (Exception e) {
+            log.error("Failed to process entry to fallback", e);
+        }
+    }
+
+    /**
+     * Flush pending operations.
+     * Closes the deduplicator to ensure all pending summary emissions complete.
+     */
+    public void flush() {
+        if (config.isDeduplicationEnabled() && deduplicator != null) {
+            try {
+                deduplicator.close();
+            } catch (Exception e) {
+                log.warn("Error closing deduplicator during flush", e);
+            }
+        }
+    }
 }

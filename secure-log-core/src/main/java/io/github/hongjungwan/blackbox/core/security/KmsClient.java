@@ -301,8 +301,7 @@ public class KmsClient implements AutoCloseable {
 
             // Derive key from seed using simple HKDF-like expansion
             KeyGenerator keyGen = KeyGenerator.getInstance("AES");
-            SecureRandom seededRandom = SecureRandom.getInstance("SHA1PRNG");
-            seededRandom.setSeed(seed);
+            SecureRandom seededRandom = createSeededSecureRandom(seed);
             keyGen.init(256, seededRandom);
             SecretKey key = keyGen.generateKey();
 
@@ -330,6 +329,29 @@ public class KmsClient implements AutoCloseable {
                 throw new KmsException("Failed to generate fallback KEK", ex);
             }
         }
+    }
+
+    /**
+     * Create a seeded SecureRandom using the strongest available algorithm.
+     * Prefers DRBG (Deterministic Random Bit Generator) which is more secure than SHA1PRNG.
+     * Falls back to SHA1PRNG if DRBG is not available.
+     *
+     * @param seed the seed bytes
+     * @return a seeded SecureRandom instance
+     */
+    private SecureRandom createSeededSecureRandom(byte[] seed) throws NoSuchAlgorithmException {
+        SecureRandom seededRandom;
+        try {
+            // Try DRBG first (stronger algorithm, available in Java 9+)
+            seededRandom = SecureRandom.getInstance("DRBG");
+            seededRandom.setSeed(seed);
+        } catch (NoSuchAlgorithmException e) {
+            // Fall back to SHA1PRNG if DRBG is not available
+            log.warn("DRBG algorithm not available, falling back to SHA1PRNG");
+            seededRandom = SecureRandom.getInstance("SHA1PRNG");
+            seededRandom.setSeed(seed);
+        }
+        return seededRandom;
     }
 
     /**

@@ -10,6 +10,8 @@ import io.github.hongjungwan.blackbox.core.internal.SdkMetrics;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -215,21 +217,47 @@ public class ResilientLogTransport {
         }
     }
 
+    /**
+     * Replay a single fallback file with file locking to prevent concurrent processing.
+     * Uses FileLock to ensure only one thread/process can replay a given file.
+     *
+     * @param file the fallback file to replay
+     * @return true if replay succeeded or file was skipped (being processed), false on error
+     */
     private boolean replayFile(Path file) {
-        try {
-            byte[] data = Files.readAllBytes(file);
+        try (FileChannel channel = FileChannel.open(file, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
+            // Try to acquire exclusive lock (non-blocking)
+            FileLock lock = channel.tryLock();
+            if (lock == null) {
+                // File is being processed by another thread/process, skip
+                log.debug("File {} is being processed by another thread, skipping", file);
+                return true;  // Not an error, just skip
+            }
 
-            // Use circuit breaker for replay too
-            circuitBreaker.execute(() -> {
-                kafkaProducer.send(config.getKafkaTopic(), data);
-                return null;
-            });
+            try {
+                // Read file contents while holding lock
+                byte[] data = Files.readAllBytes(file);
 
-            // Secure delete after successful replay
-            secureDelete(file);
-            log.info("Replayed and deleted: {}", file);
-            return true;
+                // Use circuit breaker for replay
+                circuitBreaker.execute(() -> {
+                    kafkaProducer.send(config.getKafkaTopic(), data);
+                    return null;
+                });
 
+                // Release lock before secure delete
+                lock.release();
+
+                // Secure delete after successful replay
+                secureDelete(file);
+                log.info("Replayed and deleted: {}", file);
+                return true;
+
+            } finally {
+                // Ensure lock is released if still valid
+                if (lock.isValid()) {
+                    lock.release();
+                }
+            }
         } catch (Exception e) {
             log.error("Failed to replay file: {}", file, e);
             return false;

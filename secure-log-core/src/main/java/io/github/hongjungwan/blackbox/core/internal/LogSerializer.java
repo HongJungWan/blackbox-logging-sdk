@@ -119,6 +119,13 @@ public class LogSerializer {
 
             byte[] decompressed = Zstd.decompress(data, (int) originalSize);
 
+            // Validate actual decompressed size matches expected size
+            if (decompressed.length != originalSize) {
+                throw new SerializationException(
+                        String.format("Decompressed size mismatch: expected %d bytes but got %d bytes. " +
+                                "This may indicate corrupted data.", originalSize, decompressed.length), null);
+            }
+
             // Step 2: Parse JSON
             return objectMapper.readValue(decompressed, LogEntry.class);
 

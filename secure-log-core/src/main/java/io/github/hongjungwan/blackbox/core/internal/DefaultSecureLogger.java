@@ -1,5 +1,7 @@
 package io.github.hongjungwan.blackbox.core.internal;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.hongjungwan.blackbox.api.SecureLogger;
 import io.github.hongjungwan.blackbox.api.context.LoggingContext;
 import org.slf4j.Logger;
@@ -17,6 +19,12 @@ import java.util.Map;
 public class DefaultSecureLogger implements SecureLogger {
 
     private static final String PAYLOAD_MDC_KEY = "secure.payload";
+
+    /**
+     * ObjectMapper for serializing payload to JSON string.
+     * Thread-safe and reusable. Matches the parsing in LogEntry.parsePayloadFromMdc().
+     */
+    private static final ObjectMapper PAYLOAD_MAPPER = new ObjectMapper();
 
     private final Logger delegate;
     private final String name;
@@ -167,26 +175,17 @@ public class DefaultSecureLogger implements SecureLogger {
     }
 
     /**
-     * Convert payload map to a string representation for MDC storage.
-     * Uses a simple JSON-like format for readability.
+     * Convert payload map to a JSON string for MDC storage.
+     * Uses Jackson ObjectMapper for proper JSON serialization that handles
+     * nested objects, arrays, and special characters correctly.
+     * This ensures consistency with LogEntry.parsePayloadFromMdc().
      */
     private String convertPayloadToString(Map<String, Object> payload) {
-        StringBuilder sb = new StringBuilder("{");
-        boolean first = true;
-        for (Map.Entry<String, Object> entry : payload.entrySet()) {
-            if (!first) {
-                sb.append(", ");
-            }
-            first = false;
-            sb.append("\"").append(entry.getKey()).append("\": ");
-            Object value = entry.getValue();
-            if (value instanceof String) {
-                sb.append("\"").append(value).append("\"");
-            } else {
-                sb.append(value);
-            }
+        try {
+            return PAYLOAD_MAPPER.writeValueAsString(payload);
+        } catch (JsonProcessingException e) {
+            // Fallback to simple toString if JSON serialization fails
+            return payload.toString();
         }
-        sb.append("}");
-        return sb.toString();
     }
 }

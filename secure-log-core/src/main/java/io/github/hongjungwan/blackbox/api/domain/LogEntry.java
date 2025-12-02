@@ -1,12 +1,14 @@
 package io.github.hongjungwan.blackbox.api.domain;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;
 import lombok.Builder;
 import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
 
-import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -34,10 +36,22 @@ import java.util.Map;
  *
  * @since 8.0.0
  */
+@Slf4j
 @Getter
 @Builder
 @JsonDeserialize(builder = LogEntry.LogEntryBuilder.class)
 public class LogEntry {
+
+    /**
+     * ObjectMapper for parsing MDC payload JSON strings.
+     * Thread-safe and reusable.
+     */
+    private static final ObjectMapper MDC_PAYLOAD_MAPPER = new ObjectMapper();
+
+    /**
+     * TypeReference for Map deserialization.
+     */
+    private static final TypeReference<Map<String, Object>> MAP_TYPE_REF = new TypeReference<>() {};
 
     /**
      * Timestamp in milliseconds since epoch
@@ -145,114 +159,22 @@ public class LogEntry {
     }
 
     /**
-     * Parse payload from MDC string representation.
-     * Handles the simple JSON-like format produced by DefaultSecureLogger.convertPayloadToString().
-     * Format: {"key1": "value1", "key2": value2}
+     * Parse payload from MDC string representation using Jackson ObjectMapper.
+     * Handles full JSON format including nested objects and arrays.
+     *
+     * @param mdcPayload JSON string from MDC
+     * @return parsed Map or null if parsing fails
      */
     private static Map<String, Object> parsePayloadFromMdc(String mdcPayload) {
-        if (mdcPayload == null || mdcPayload.length() < 2) {
+        if (mdcPayload == null || mdcPayload.isEmpty()) {
             return null;
         }
-
-        // Remove outer braces
-        String content = mdcPayload.trim();
-        if (!content.startsWith("{") || !content.endsWith("}")) {
-            return null;
-        }
-        content = content.substring(1, content.length() - 1).trim();
-
-        if (content.isEmpty()) {
-            return Map.of();
-        }
-
-        Map<String, Object> result = new HashMap<>();
-
-        // Simple parser for key-value pairs
-        // This handles the format: "key1": "value1", "key2": value2
-        int i = 0;
-        while (i < content.length()) {
-            // Skip whitespace
-            while (i < content.length() && Character.isWhitespace(content.charAt(i))) {
-                i++;
-            }
-
-            if (i >= content.length()) break;
-
-            // Expect opening quote for key
-            if (content.charAt(i) != '"') break;
-            i++;
-
-            // Read key
-            int keyStart = i;
-            while (i < content.length() && content.charAt(i) != '"') {
-                i++;
-            }
-            if (i >= content.length()) break;
-            String key = content.substring(keyStart, i);
-            i++; // skip closing quote
-
-            // Skip ": "
-            while (i < content.length() && (content.charAt(i) == ':' || Character.isWhitespace(content.charAt(i)))) {
-                i++;
-            }
-
-            if (i >= content.length()) break;
-
-            // Read value
-            Object value;
-            if (content.charAt(i) == '"') {
-                // String value
-                i++; // skip opening quote
-                int valueStart = i;
-                while (i < content.length() && content.charAt(i) != '"') {
-                    i++;
-                }
-                value = content.substring(valueStart, i);
-                if (i < content.length()) i++; // skip closing quote
-            } else {
-                // Non-string value (number, boolean, null)
-                int valueStart = i;
-                while (i < content.length() && content.charAt(i) != ',' && content.charAt(i) != '}') {
-                    i++;
-                }
-                String valueStr = content.substring(valueStart, i).trim();
-                value = parseValue(valueStr);
-            }
-
-            result.put(key, value);
-
-            // Skip comma and whitespace
-            while (i < content.length() && (content.charAt(i) == ',' || Character.isWhitespace(content.charAt(i)))) {
-                i++;
-            }
-        }
-
-        return result;
-    }
-
-    /**
-     * Parse a non-string value from string representation.
-     */
-    private static Object parseValue(String valueStr) {
-        if (valueStr == null || valueStr.isEmpty() || "null".equals(valueStr)) {
-            return null;
-        }
-        if ("true".equalsIgnoreCase(valueStr)) {
-            return Boolean.TRUE;
-        }
-        if ("false".equalsIgnoreCase(valueStr)) {
-            return Boolean.FALSE;
-        }
-        // Try to parse as number
         try {
-            if (valueStr.contains(".")) {
-                return Double.parseDouble(valueStr);
-            } else {
-                return Long.parseLong(valueStr);
-            }
-        } catch (NumberFormatException e) {
-            // Return as string if parsing fails
-            return valueStr;
+            return MDC_PAYLOAD_MAPPER.readValue(mdcPayload, MAP_TYPE_REF);
+        } catch (Exception e) {
+            // Log warning and return null to fall back to argumentArray
+            log.debug("Failed to parse MDC payload as JSON, falling back to argumentArray: {}", e.getMessage());
+            return null;
         }
     }
 

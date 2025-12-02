@@ -70,6 +70,25 @@ public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEve
                 waitCount++;
             }
 
+            // Drain remaining events to fallback storage if buffer not fully drained
+            int remaining = buffer.size();
+            if (remaining > 0) {
+                addWarn("Buffer not fully drained. Saving " + remaining + " events to fallback");
+                ILoggingEvent event;
+                while ((event = buffer.poll()) != null) {
+                    try {
+                        LogEntry logEntry = LogEntry.fromEvent(event);
+                        processor.processFallback(logEntry);
+                    } catch (Exception e) {
+                        droppedEvents.incrementAndGet();
+                        addError("Failed to save event to fallback during shutdown", e);
+                    }
+                }
+            }
+
+            // Flush processor to ensure pending deduplication summaries are emitted
+            processor.flush();
+
             executor.shutdown();
             try {
                 if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
