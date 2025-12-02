@@ -226,3 +226,19 @@ JMH benchmarks available in `secure-log-core/src/test/java/.../benchmark/`:
 - `LogProcessorBenchmark` - End-to-end processing throughput
 - `PiiMaskerBenchmark` - Masking performance
 - `SerializationBenchmark` - JSON/Zstd serialization
+
+## Package Structure
+
+```
+io.github.hongjungwan.blackbox
+├── api/                    # Public API (SecureLogger, LogEntry, LoggingContext)
+│   ├── config/             # Configuration classes
+│   ├── context/            # Context propagation
+│   ├── domain/             # Domain models
+│   └── interceptor/        # Interceptor interfaces
+├── core/
+│   ├── internal/           # Core implementations (LogProcessor, VirtualAsyncAppender, etc.)
+│   ├── resilience/         # CircuitBreaker, RetryPolicy, RateLimiter
+│   └── security/           # EnvelopeEncryption, KmsClient, PiiMasker
+└── spi/                    # Extension points (providers for encryption, masking, transport)
+```
