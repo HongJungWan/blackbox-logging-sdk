@@ -218,10 +218,24 @@ public final class LoggingContext {
 
     /**
      * Generate random trace ID (32 hex chars).
+     *
+     * FIX P2 #12: Include timestamp component to reduce collision probability.
+     * Format: timestamp_hex (variable) + random1_hex + random2_partial_hex
      */
     public static String generateTraceId() {
-        return Long.toHexString(java.util.concurrent.ThreadLocalRandom.current().nextLong())
-                + Long.toHexString(java.util.concurrent.ThreadLocalRandom.current().nextLong());
+        long timestamp = System.currentTimeMillis();
+        long random1 = java.util.concurrent.ThreadLocalRandom.current().nextLong();
+        long random2 = java.util.concurrent.ThreadLocalRandom.current().nextLong();
+        // Combine timestamp and randoms, ensuring we get a consistent length
+        String timestampHex = Long.toHexString(timestamp);
+        String random1Hex = Long.toHexString(random1);
+        String combined = timestampHex + random1Hex + Long.toHexString(random2 >>> 16);
+        // Ensure we return exactly 32 hex chars (pad or truncate as needed)
+        if (combined.length() >= 32) {
+            return combined.substring(0, 32);
+        }
+        // Pad with leading zeros if needed (unlikely but safe)
+        return String.format("%32s", combined).replace(' ', '0');
     }
 
     /**

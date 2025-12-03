@@ -6,6 +6,7 @@ import io.github.hongjungwan.blackbox.spi.LoggerProvider;
 import java.util.ServiceLoader;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Factory for creating SecureLogger instances.
@@ -19,6 +20,9 @@ public final class SecureLoggerFactory {
 
     private static final ConcurrentMap<String, SecureLogger> LOGGER_CACHE = new ConcurrentHashMap<>();
     private static volatile LoggerProvider provider;
+
+    // Use ReentrantLock instead of synchronized for Virtual Thread compatibility
+    private static final ReentrantLock PROVIDER_LOCK = new ReentrantLock();
 
     private SecureLoggerFactory() {}
 
@@ -59,10 +63,13 @@ public final class SecureLoggerFactory {
 
     private static LoggerProvider getProvider() {
         if (provider == null) {
-            synchronized (SecureLoggerFactory.class) {
+            PROVIDER_LOCK.lock();
+            try {
                 if (provider == null) {
                     provider = loadProvider();
                 }
+            } finally {
+                PROVIDER_LOCK.unlock();
             }
         }
         return provider;

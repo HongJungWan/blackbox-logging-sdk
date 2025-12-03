@@ -7,7 +7,7 @@ import io.github.hongjungwan.blackbox.core.security.EnvelopeEncryption;
 import io.github.hongjungwan.blackbox.core.internal.MerkleChain;
 import io.github.hongjungwan.blackbox.core.internal.SemanticDeduplicator;
 import io.github.hongjungwan.blackbox.core.internal.LogSerializer;
-import io.github.hongjungwan.blackbox.core.internal.LogTransport;
+import io.github.hongjungwan.blackbox.core.internal.ResilientLogTransport;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -22,7 +22,7 @@ public class LogProcessor {
     private final MerkleChain merkleChain;
     private final SemanticDeduplicator deduplicator;
     private final LogSerializer serializer;
-    private final LogTransport transport;
+    private final ResilientLogTransport transport;
 
     public LogProcessor(
             SecureLogConfig config,
@@ -31,7 +31,7 @@ public class LogProcessor {
             MerkleChain merkleChain,
             SemanticDeduplicator deduplicator,
             LogSerializer serializer,
-            LogTransport transport
+            ResilientLogTransport transport
     ) {
         this.config = config;
         this.piiMasker = piiMasker;
@@ -40,6 +40,51 @@ public class LogProcessor {
         this.deduplicator = deduplicator;
         this.serializer = serializer;
         this.transport = transport;
+
+        // Register callback for deduplication summary logs
+        // When deduplication window expires, summary logs are processed through the pipeline
+        if (config.isDeduplicationEnabled()) {
+            deduplicator.setSummaryCallback(this::processSummaryEntry);
+        }
+    }
+
+    /**
+     * Process a summary entry from deduplication (skips deduplication step)
+     */
+    private void processSummaryEntry(LogEntry summaryEntry) {
+        try {
+            // Summary entries bypass deduplication (Step 1 skipped)
+
+            // Step 2: PII Masking
+            LogEntry maskedEntry = summaryEntry;
+            if (config.isPiiMaskingEnabled()) {
+                maskedEntry = piiMasker.mask(summaryEntry);
+            }
+
+            // Step 3: Merkle Chain Integrity
+            LogEntry chainedEntry = maskedEntry;
+            if (config.isIntegrityEnabled()) {
+                chainedEntry = merkleChain.addToChain(maskedEntry);
+            }
+
+            // Step 4: Envelope Encryption
+            LogEntry encryptedEntry = chainedEntry;
+            if (config.isEncryptionEnabled()) {
+                encryptedEntry = encryption.encrypt(chainedEntry);
+            }
+
+            // Step 5: Serialize
+            byte[] serialized = serializer.serialize(encryptedEntry);
+
+            // Step 6: Transport
+            transport.send(serialized);
+
+            log.debug("Emitted deduplication summary log with repeat_count={}", summaryEntry.getRepeatCount());
+
+        } catch (Exception e) {
+            log.error("Error processing deduplication summary entry", e);
+            handleProcessingError(summaryEntry, e);
+        }
     }
 
     /**
@@ -48,7 +93,7 @@ public class LogProcessor {
     public void process(LogEntry entry) {
         try {
             // Step 1: Semantic Deduplication (FEAT-02)
-            if (config.isDeduplicationEnabled()) {
+            if (config.isDeduplicationEnabled() && deduplicator != null) {
                 if (deduplicator.isDuplicate(entry)) {
                     // Silently skip, counter incremented in deduplicator
                     return;
@@ -92,6 +137,46 @@ public class LogProcessor {
             transport.sendToFallback(entry);
         } catch (Exception fallbackError) {
             log.error("Failed to write to fallback", fallbackError);
+        }
+    }
+
+    /**
+     * Process a log entry directly to fallback storage.
+     * Used during shutdown to ensure no events are lost when buffer cannot be fully drained.
+     *
+     * @param entry the log entry to send to fallback
+     */
+    public void processFallback(LogEntry entry) {
+        try {
+            // Apply minimal processing before fallback
+            LogEntry processedEntry = entry;
+
+            // Step 1: PII Masking (critical for compliance)
+            if (config.isPiiMaskingEnabled()) {
+                processedEntry = piiMasker.mask(entry);
+            }
+
+            // Skip integrity chain and encryption for fallback (these require more complex state)
+            // The fallback data can be post-processed when replayed
+
+            // Send directly to fallback
+            transport.sendToFallback(processedEntry);
+        } catch (Exception e) {
+            log.error("Failed to process entry to fallback", e);
+        }
+    }
+
+    /**
+     * Flush pending operations.
+     * Closes the deduplicator to ensure all pending summary emissions complete.
+     */
+    public void flush() {
+        if (config.isDeduplicationEnabled() && deduplicator != null) {
+            try {
+                deduplicator.close();
+            } catch (Exception e) {
+                log.warn("Error closing deduplicator during flush", e);
+            }
         }
     }
 }

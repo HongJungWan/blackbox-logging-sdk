@@ -5,6 +5,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.clients.producer.RecordMetadata;
+import org.apache.kafka.common.errors.AuthenticationException;
+import org.apache.kafka.common.errors.AuthorizationException;
+import org.apache.kafka.common.errors.InvalidTopicException;
+import org.apache.kafka.common.errors.RecordTooLargeException;
+import org.apache.kafka.common.errors.SerializationException;
+import org.apache.kafka.common.errors.TimeoutException;
+import org.apache.kafka.common.errors.UnknownTopicOrPartitionException;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 
@@ -92,8 +99,8 @@ public class KafkaProducer implements AutoCloseable {
         producer.send(record, (metadata, exception) -> {
             if (exception != null) {
                 errorCount.incrementAndGet();
-                log.error("Failed to send log to Kafka topic {}: {}", topic, exception.getMessage());
-                future.completeExceptionally(new KafkaSendException("Send failed", exception));
+                KafkaSendException wrappedException = handleKafkaException(topic, data.length, exception);
+                future.completeExceptionally(wrappedException);
             } else {
                 sentCount.incrementAndGet();
                 if (log.isDebugEnabled()) {
@@ -153,6 +160,99 @@ public class KafkaProducer implements AutoCloseable {
         return closed.get();
     }
 
+    /**
+     * Handle Kafka exceptions with detailed error categorization and logging.
+     *
+     * <p>Error categories:</p>
+     * <ul>
+     *   <li><strong>Authentication/Authorization:</strong> Credential or permission issues - requires config fix</li>
+     *   <li><strong>Network/Timeout:</strong> Transient failures - may be retried</li>
+     *   <li><strong>Data:</strong> Record too large or serialization issues - requires payload adjustment</li>
+     *   <li><strong>Topic:</strong> Invalid topic or topic doesn't exist - requires config fix</li>
+     * </ul>
+     *
+     * @param topic the target topic
+     * @param dataSize the size of the data being sent
+     * @param exception the original Kafka exception
+     * @return a categorized KafkaSendException with detailed message
+     */
+    private KafkaSendException handleKafkaException(String topic, int dataSize, Exception exception) {
+        String errorCategory;
+        String errorMessage;
+        boolean retryable;
+
+        if (exception instanceof AuthenticationException) {
+            errorCategory = "AUTHENTICATION";
+            errorMessage = String.format(
+                    "Kafka authentication failed for topic '%s'. Check SASL/SSL credentials and configuration. " +
+                    "Security protocol: %s", topic, config.getKafkaSecurityProtocol());
+            retryable = false;
+            log.error("[{}] {}: {}", errorCategory, errorMessage, exception.getMessage());
+
+        } else if (exception instanceof AuthorizationException) {
+            errorCategory = "AUTHORIZATION";
+            errorMessage = String.format(
+                    "Not authorized to send to topic '%s'. Check ACLs and permissions.", topic);
+            retryable = false;
+            log.error("[{}] {}: {}", errorCategory, errorMessage, exception.getMessage());
+
+        } else if (exception instanceof TimeoutException) {
+            errorCategory = "TIMEOUT";
+            errorMessage = String.format(
+                    "Timeout sending to topic '%s' (bootstrap: %s). Kafka broker may be unavailable or overloaded.",
+                    topic, config.getKafkaBootstrapServers());
+            retryable = true;
+            log.warn("[{}] {}: {}", errorCategory, errorMessage, exception.getMessage());
+
+        } else if (exception instanceof RecordTooLargeException) {
+            errorCategory = "RECORD_TOO_LARGE";
+            errorMessage = String.format(
+                    "Record size %d bytes exceeds broker limit for topic '%s'. " +
+                    "Increase broker's message.max.bytes or reduce payload size.", dataSize, topic);
+            retryable = false;
+            log.error("[{}] {}: {}", errorCategory, errorMessage, exception.getMessage());
+
+        } else if (exception instanceof SerializationException) {
+            errorCategory = "SERIALIZATION";
+            errorMessage = String.format(
+                    "Failed to serialize record for topic '%s'. Check data format.", topic);
+            retryable = false;
+            log.error("[{}] {}: {}", errorCategory, errorMessage, exception.getMessage());
+
+        } else if (exception instanceof InvalidTopicException) {
+            errorCategory = "INVALID_TOPIC";
+            errorMessage = String.format(
+                    "Invalid topic name '%s'. Topic names must match Kafka naming rules.", topic);
+            retryable = false;
+            log.error("[{}] {}: {}", errorCategory, errorMessage, exception.getMessage());
+
+        } else if (exception instanceof UnknownTopicOrPartitionException) {
+            errorCategory = "UNKNOWN_TOPIC";
+            errorMessage = String.format(
+                    "Topic '%s' does not exist. Create the topic or enable auto.create.topics.enable on broker.", topic);
+            retryable = false;
+            log.error("[{}] {}: {}", errorCategory, errorMessage, exception.getMessage());
+
+        } else if (exception.getCause() instanceof java.net.ConnectException ||
+                   exception.getCause() instanceof java.net.UnknownHostException) {
+            errorCategory = "NETWORK";
+            errorMessage = String.format(
+                    "Cannot connect to Kafka broker at '%s'. Check network connectivity and broker availability.",
+                    config.getKafkaBootstrapServers());
+            retryable = true;
+            log.warn("[{}] {}: {}", errorCategory, errorMessage, exception.getMessage());
+
+        } else {
+            errorCategory = "UNKNOWN";
+            errorMessage = String.format(
+                    "Unexpected error sending to topic '%s': %s", topic, exception.getClass().getSimpleName());
+            retryable = true;
+            log.error("[{}] {}: {}", errorCategory, errorMessage, exception.getMessage(), exception);
+        }
+
+        return new KafkaSendException(errorCategory, errorMessage, retryable, exception);
+    }
+
     @Override
     public void close() {
         if (closed.compareAndSet(false, true)) {
@@ -169,10 +269,59 @@ public class KafkaProducer implements AutoCloseable {
 
     /**
      * Exception thrown when Kafka send fails.
+     *
+     * <p>Contains categorized error information for better error handling.</p>
      */
     public static class KafkaSendException extends RuntimeException {
+
+        private final String errorCategory;
+        private final boolean retryable;
+
         public KafkaSendException(String message, Throwable cause) {
             super(message, cause);
+            this.errorCategory = "UNKNOWN";
+            this.retryable = true;
+        }
+
+        public KafkaSendException(String category, String message, boolean retryable, Throwable cause) {
+            super(message, cause);
+            this.errorCategory = category;
+            this.retryable = retryable;
+        }
+
+        /**
+         * Get the error category (e.g., AUTHENTICATION, NETWORK, TIMEOUT).
+         */
+        public String getErrorCategory() {
+            return errorCategory;
+        }
+
+        /**
+         * Check if this error is potentially retryable.
+         *
+         * <p>Non-retryable errors include:</p>
+         * <ul>
+         *   <li>Authentication/Authorization failures</li>
+         *   <li>Invalid topic configuration</li>
+         *   <li>Record too large</li>
+         *   <li>Serialization errors</li>
+         * </ul>
+         *
+         * <p>Retryable errors include:</p>
+         * <ul>
+         *   <li>Network connectivity issues</li>
+         *   <li>Timeouts</li>
+         *   <li>Broker unavailability</li>
+         * </ul>
+         */
+        public boolean isRetryable() {
+            return retryable;
+        }
+
+        @Override
+        public String toString() {
+            return String.format("KafkaSendException[category=%s, retryable=%s]: %s",
+                    errorCategory, retryable, getMessage());
         }
     }
 }

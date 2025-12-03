@@ -9,7 +9,7 @@ import io.github.hongjungwan.blackbox.core.internal.LogProcessor;
 import io.github.hongjungwan.blackbox.core.security.EnvelopeEncryption;
 import io.github.hongjungwan.blackbox.core.security.KmsClient;
 import io.github.hongjungwan.blackbox.core.internal.LogSerializer;
-import io.github.hongjungwan.blackbox.core.internal.LogTransport;
+import io.github.hongjungwan.blackbox.core.internal.ResilientLogTransport;
 import org.openjdk.jmh.annotations.*;
 import org.openjdk.jmh.infra.Blackhole;
 import org.openjdk.jmh.runner.Runner;
@@ -164,7 +164,7 @@ public class LogProcessorBenchmark {
     /**
      * No-op transport for benchmarking (avoids I/O overhead)
      */
-    static class NoOpTransport extends LogTransport {
+    static class NoOpTransport extends ResilientLogTransport {
         private final AtomicLong sendCount = new AtomicLong(0);
 
         NoOpTransport() throws IOException {

@@ -221,6 +221,20 @@ public final class SdkMetrics {
         fallbackActivations.set(0);
     }
 
+    /**
+     * Reset all metrics for testing purposes.
+     * This method clears all counters, histograms, and maps to provide a clean state.
+     *
+     * @deprecated Use reset() instead. This method exists only for backward compatibility.
+     */
+    @Deprecated
+    public void resetForTesting() {
+        reset();
+        // Also clear the maps to ensure completely fresh state for tests
+        levelCounters.clear();
+        errorCounters.clear();
+    }
+
     // ========== Inner Classes ==========
 
     /**

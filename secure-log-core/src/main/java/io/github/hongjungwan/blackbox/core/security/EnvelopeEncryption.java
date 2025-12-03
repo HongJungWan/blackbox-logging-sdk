@@ -76,8 +76,18 @@ public class EnvelopeEncryption {
 
     /**
      * Encrypt log entry using envelope encryption.
+     *
+     * FIX P3 #21: Add input validation for null entry and null message.
      */
     public LogEntry encrypt(LogEntry entry) {
+        // FIX P3 #21: Validate input
+        if (entry == null) {
+            throw new EncryptionException("Cannot encrypt null entry");
+        }
+        if (entry.getMessage() == null) {
+            throw new EncryptionException("Cannot encrypt entry with null message");
+        }
+
         try {
             // Check if DEK needs rotation
             rotateDekIfNeeded();
@@ -178,44 +188,88 @@ public class EnvelopeEncryption {
     /**
      * Rotate DEK if rotation interval has passed.
      * CRITICAL: Uses ReentrantLock instead of synchronized (Virtual Thread compatible)
+     *
+     * FIX P0 #1: Move the initial time check INSIDE the lock to prevent TOCTOU race condition.
+     * Previously, the volatile dekCreationTime was read BEFORE acquiring the lock, which could
+     * allow multiple threads to pass the initial check and queue up for rotation.
      */
     private void rotateDekIfNeeded() {
-        long now = System.currentTimeMillis();
-        if (now - dekCreationTime > DEK_ROTATION_INTERVAL_MS) {
-            rotationLock.lock();
-            try {
-                // Double-check after acquiring lock
-                if (now - dekCreationTime > DEK_ROTATION_INTERVAL_MS) {
-                    // Crypto-shredding: destroy old DEK
-                    SecretKey oldDek = currentDek;
-                    currentDek = generateDek();
-                    dekCreationTime = now;
+        rotationLock.lock();
+        try {
+            long now = System.currentTimeMillis();
+            if (now - dekCreationTime > DEK_ROTATION_INTERVAL_MS) {
+                // Crypto-shredding: destroy old DEK
+                SecretKey oldDek = currentDek;
+                currentDek = generateDek();
+                dekCreationTime = now;
 
-                    // Clear old DEK from memory (best effort)
-                    destroyKey(oldDek);
+                // Clear old DEK from memory (best effort)
+                destroyKey(oldDek);
 
-                    log.info("DEK rotated successfully");
-                }
-            } finally {
-                rotationLock.unlock();
+                log.info("DEK rotated successfully");
             }
+        } finally {
+            rotationLock.unlock();
         }
     }
 
     /**
-     * Best-effort key destruction.
+     * Best-effort key destruction for crypto-shredding.
+     *
+     * <h2>JVM Limitation Warning</h2>
+     * <p>This method performs best-effort key destruction, but has inherent JVM limitations:</p>
+     * <ul>
+     *   <li>{@code key.getEncoded()} returns a <em>copy</em> of the key bytes, not the original.
+     *       Zeroing this copy does not affect the key material stored inside the SecretKey object.</li>
+     *   <li>The actual key material in {@code SecretKeySpec} is stored in a private final byte array
+     *       that cannot be directly accessed or zeroed without reflection.</li>
+     *   <li>Even with reflection, the JVM may have cached copies of the key in various places.</li>
+     * </ul>
+     *
+     * <h2>Mitigation Strategies</h2>
+     * <ul>
+     *   <li>The key is dereferenced and will be garbage collected, eventually overwritten</li>
+     *   <li>For true crypto-shredding, rely on KMS-managed DEK destruction</li>
+     *   <li>The encrypted DEK stored in logs becomes unrecoverable once the KEK is rotated/destroyed in KMS</li>
+     *   <li>For high-security requirements, consider using HSM-backed keys or off-heap memory</li>
+     * </ul>
+     *
+     * @param key the secret key to destroy
      */
     private void destroyKey(SecretKey key) {
+        if (key == null) {
+            return;
+        }
+
         try {
-            if (key instanceof javax.crypto.SecretKey) {
-                // Zero out key bytes (best effort)
-                byte[] keyBytes = key.getEncoded();
-                if (keyBytes != null) {
-                    java.util.Arrays.fill(keyBytes, (byte) 0);
+            // Try to use the Destroyable interface if the key supports it
+            if (key instanceof javax.security.auth.Destroyable) {
+                javax.security.auth.Destroyable destroyable = (javax.security.auth.Destroyable) key;
+                if (!destroyable.isDestroyed()) {
+                    try {
+                        destroyable.destroy();
+                        log.debug("Key destroyed via Destroyable interface");
+                        return;
+                    } catch (javax.security.auth.DestroyFailedException e) {
+                        // SecretKeySpec.destroy() throws DestroyFailedException by default
+                        // Fall through to best-effort approach
+                        log.trace("Destroyable.destroy() failed, using best-effort approach");
+                    }
                 }
             }
+
+            // Best-effort: zero out the copy of key bytes
+            // NOTE: This zeros a copy, not the original key material (see Javadoc above)
+            byte[] keyBytes = key.getEncoded();
+            if (keyBytes != null) {
+                java.util.Arrays.fill(keyBytes, (byte) 0);
+            }
+
+            // The key object will be garbage collected and eventually overwritten
+            // For stronger guarantees, use KMS key rotation to invalidate encrypted DEKs
+
         } catch (Exception e) {
-            log.warn("Failed to destroy key", e);
+            log.warn("Failed to destroy key: {}", e.getMessage());
         }
     }
 
@@ -236,15 +290,37 @@ public class EnvelopeEncryption {
 
     /**
      * Decrypt log entry (for authorized access only).
+     *
+     * FIX P1 #11: Add validation of encryptedDek field before decryption.
      */
     public LogEntry decrypt(LogEntry encryptedEntry) {
         try {
+            // FIX P1 #11: Validate encryptedDek before decryption
+            String encryptedDekStr = encryptedEntry.getEncryptedDek();
+            if (encryptedDekStr == null || encryptedDekStr.isEmpty()) {
+                throw new EncryptionException("Missing encrypted DEK");
+            }
+
             // Decrypt DEK with KEK
-            byte[] encryptedDek = Base64.getDecoder().decode(encryptedEntry.getEncryptedDek());
+            byte[] encryptedDek = Base64.getDecoder().decode(encryptedDekStr);
+
+            // FIX P1 #11: Validate minimum length: IV (12 bytes) + encrypted key (32+ bytes) + auth tag (16 bytes) = minimum 60 bytes
+            if (encryptedDek.length < 60) {
+                throw new EncryptionException("Invalid encrypted DEK: too short (possible corruption)");
+            }
+
             SecretKey dek = decryptDekWithKek(encryptedDek);
 
             // Decrypt payload with DEK
-            String encryptedPayloadStr = (String) encryptedEntry.getPayload().get("encrypted");
+            Map<String, Object> payload = encryptedEntry.getPayload();
+            if (payload == null) {
+                throw new EncryptionException("Encrypted entry has no payload", null);
+            }
+            Object encryptedObj = payload.get("encrypted");
+            if (encryptedObj == null) {
+                throw new EncryptionException("Encrypted payload missing 'encrypted' field", null);
+            }
+            String encryptedPayloadStr = (String) encryptedObj;
             byte[] encryptedPayload = Base64.getDecoder().decode(encryptedPayloadStr);
             byte[] decryptedPayload = decryptWithDek(encryptedPayload, dek);
 
@@ -317,6 +393,10 @@ public class EnvelopeEncryption {
     }
 
     public static class EncryptionException extends RuntimeException {
+        public EncryptionException(String message) {
+            super(message);
+        }
+
         public EncryptionException(String message, Throwable cause) {
             super(message, cause);
         }

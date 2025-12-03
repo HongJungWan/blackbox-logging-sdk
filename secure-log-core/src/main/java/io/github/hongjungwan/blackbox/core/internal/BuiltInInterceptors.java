@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Predicate;
 
@@ -84,7 +85,7 @@ public final class BuiltInInterceptors {
         }
 
         return (entry, chain) -> {
-            if (Math.random() < rate) {
+            if (ThreadLocalRandom.current().nextDouble() < rate) {
                 return chain.proceed(entry);
             }
             return null; // Sampled out

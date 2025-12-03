@@ -1,10 +1,13 @@
 package io.github.hongjungwan.blackbox.api.domain;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;
 import lombok.Builder;
 import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.Map;
 
@@ -33,10 +36,22 @@ import java.util.Map;
  *
  * @since 8.0.0
  */
+@Slf4j
 @Getter
 @Builder
 @JsonDeserialize(builder = LogEntry.LogEntryBuilder.class)
 public class LogEntry {
+
+    /**
+     * ObjectMapper for parsing MDC payload JSON strings.
+     * Thread-safe and reusable.
+     */
+    private static final ObjectMapper MDC_PAYLOAD_MAPPER = new ObjectMapper();
+
+    /**
+     * TypeReference for Map deserialization.
+     */
+    private static final TypeReference<Map<String, Object>> MAP_TYPE_REF = new TypeReference<>() {};
 
     /**
      * Timestamp in milliseconds since epoch
@@ -121,14 +136,52 @@ public class LogEntry {
         return Map.copyOf(event.getMDCPropertyMap());
     }
 
+    private static final String PAYLOAD_MDC_KEY = "secure.payload";
+
     private static Map<String, Object> extractPayload(ch.qos.logback.classic.spi.ILoggingEvent event) {
+        // First, check MDC for "secure.payload" key (set by DefaultSecureLogger)
+        String mdcPayload = event.getMDCPropertyMap().get(PAYLOAD_MDC_KEY);
+        if (mdcPayload != null && !mdcPayload.isEmpty()) {
+            Map<String, Object> parsed = parsePayloadFromMdc(mdcPayload);
+            if (parsed != null && !parsed.isEmpty()) {
+                return parsed;
+            }
+        }
+
+        // Fall back to checking argumentArray
         Object[] args = event.getArgumentArray();
         if (args != null && args.length > 0 && args[args.length - 1] instanceof Map) {
-            @SuppressWarnings("unchecked")
-            Map<String, Object> payload = (Map<String, Object>) args[args.length - 1];
-            return payload;
+            try {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> payload = (Map<String, Object>) args[args.length - 1];
+                return payload;
+            } catch (ClassCastException e) {
+                // Log warning and return empty map if cast fails
+                log.debug("Failed to cast argument to Map<String, Object>: {}", e.getMessage());
+                return Map.of();
+            }
         }
         return Map.of();
+    }
+
+    /**
+     * Parse payload from MDC string representation using Jackson ObjectMapper.
+     * Handles full JSON format including nested objects and arrays.
+     *
+     * @param mdcPayload JSON string from MDC
+     * @return parsed Map or null if parsing fails
+     */
+    private static Map<String, Object> parsePayloadFromMdc(String mdcPayload) {
+        if (mdcPayload == null || mdcPayload.isEmpty()) {
+            return null;
+        }
+        try {
+            return MDC_PAYLOAD_MAPPER.readValue(mdcPayload, MAP_TYPE_REF);
+        } catch (Exception e) {
+            // Log warning and return null to fall back to argumentArray
+            log.debug("Failed to parse MDC payload as JSON, falling back to argumentArray: {}", e.getMessage());
+            return null;
+        }
     }
 
     private static String extractThrowable(ch.qos.logback.classic.spi.ILoggingEvent event) {

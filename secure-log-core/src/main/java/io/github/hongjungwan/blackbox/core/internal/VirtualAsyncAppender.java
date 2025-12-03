@@ -11,6 +11,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
 
 /**
@@ -39,8 +40,21 @@ public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEve
     // Consumer thread reference
     private Thread consumerThread;
 
-    // Backpressure metrics
-    private volatile long droppedEvents = 0;
+    /**
+     * FIX P1 #6: Use a completion signal from consumer instead of size checks.
+     * MPSC queue size() is not atomic with polling, so we use this flag to signal
+     * when the consumer has finished processing all events.
+     */
+    private final AtomicBoolean consumerFinished = new AtomicBoolean(false);
+
+    /**
+     * FIX P2 #17: Use a unique ID field instead of relying on thread name for identification.
+     * Thread names can be duplicated across Virtual Threads.
+     */
+    private final String consumerId = "secure-log-consumer-" + System.nanoTime();
+
+    // Backpressure metrics - use AtomicLong to prevent race conditions
+    private final AtomicLong droppedEvents = new AtomicLong(0);
 
     public VirtualAsyncAppender(SecureLogConfig config, LogProcessor processor) {
         this.config = config;
@@ -62,12 +76,34 @@ public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEve
         if (isRunning.compareAndSet(true, false)) {
             addInfo("VirtualAsyncAppender stopping...");
 
-            // Wait for buffer to drain (max 10 seconds)
+            /**
+             * FIX P1 #6: Wait for consumer to signal completion instead of relying on size checks.
+             * MPSC queue size() is not atomic with polling operations, so we use consumerFinished flag.
+             */
             int waitCount = 0;
-            while (!buffer.isEmpty() && waitCount < 100) {
+            while (!consumerFinished.get() && waitCount < 100) {
                 LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(100));
                 waitCount++;
             }
+
+            // Drain remaining events to fallback storage if buffer not fully drained
+            int remaining = buffer.size();
+            if (remaining > 0) {
+                addWarn("Buffer not fully drained. Saving " + remaining + " events to fallback");
+                ILoggingEvent event;
+                while ((event = buffer.poll()) != null) {
+                    try {
+                        LogEntry logEntry = LogEntry.fromEvent(event);
+                        processor.processFallback(logEntry);
+                    } catch (Exception e) {
+                        droppedEvents.incrementAndGet();
+                        addError("Failed to save event to fallback during shutdown", e);
+                    }
+                }
+            }
+
+            // Flush processor to ensure pending deduplication summaries are emitted
+            processor.flush();
 
             executor.shutdown();
             try {
@@ -80,7 +116,7 @@ public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEve
             }
 
             super.stop();
-            addInfo("VirtualAsyncAppender stopped. Dropped events: " + droppedEvents);
+            addInfo("VirtualAsyncAppender stopped. Dropped events: " + droppedEvents.get());
         }
     }
 
@@ -106,14 +142,20 @@ public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEve
     private void startConsumerLoop() {
         executor.submit(() -> {
             consumerThread = Thread.currentThread();
-            Thread.currentThread().setName("secure-log-consumer");
+            // FIX P2 #17: Use unique consumerId for thread name
+            Thread.currentThread().setName(consumerId);
 
-            while (isRunning.get() || !buffer.isEmpty()) {
-                try {
-                    processNextBatch();
-                } catch (Exception e) {
-                    addError("Error in consumer loop", e);
+            try {
+                while (isRunning.get() || !buffer.isEmpty()) {
+                    try {
+                        processNextBatch();
+                    } catch (Exception e) {
+                        addError("[" + consumerId + "] Error in consumer loop", e);
+                    }
                 }
+            } finally {
+                // FIX P1 #6: Signal that consumer has finished processing
+                consumerFinished.set(true);
             }
         });
     }
@@ -148,20 +190,20 @@ public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEve
      * Handle backpressure when buffer is full
      */
     private void handleBackpressure(ILoggingEvent event) {
-        droppedEvents++;
+        long dropped = droppedEvents.incrementAndGet();
 
         // Option 1: Drop (current implementation)
         // Option 2: Write to fallback file synchronously
-        if (droppedEvents % 1000 == 0) {
-            addWarn("Buffer full. Dropped " + droppedEvents + " events so far.");
+        if (dropped % 1000 == 0) {
+            addWarn("Buffer full. Dropped " + dropped + " events so far.");
         }
 
-        // Could implement fallback here
-        // processor.processFallback(LogEntry.fromEvent(event));
+        // Enable fallback processing to prevent data loss
+        processor.processFallback(LogEntry.fromEvent(event));
     }
 
     public long getDroppedEvents() {
-        return droppedEvents;
+        return droppedEvents.get();
     }
 
     public int getQueueSize() {

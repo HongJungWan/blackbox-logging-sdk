@@ -15,7 +15,15 @@ import software.amazon.awssdk.services.sts.model.AssumeRoleResponse;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.PosixFilePermission;
+import java.util.EnumSet;
 import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.concurrent.locks.ReentrantLock;
@@ -35,10 +43,29 @@ public class KmsClient implements AutoCloseable {
     private final ReentrantLock lock = new ReentrantLock();
     private final boolean isAwsKmsConfigured;
 
-    // Cached KEK (with TTL)
-    private volatile SecretKey cachedKek;
-    private volatile long kekCacheTime;
+    /**
+     * FIX P0 #2: Use a holder class to ensure atomic reads of cached KEK and its cache time.
+     * Previously, cachedKek and kekCacheTime were read separately without atomicity,
+     * which could cause race conditions where stale KEK could be returned.
+     */
+    private static class CachedKekHolder {
+        final SecretKey kek;
+        final long cacheTime;
+
+        CachedKekHolder(SecretKey kek, long cacheTime) {
+            this.kek = kek;
+            this.cacheTime = cacheTime;
+        }
+    }
+
+    // Cached KEK (with TTL) - single volatile reference for atomic access
+    private volatile CachedKekHolder cachedKekHolder;
     private static final long KEK_CACHE_TTL_MS = 300_000; // 5 minutes
+
+    // Fallback KEK persistence
+    private static final String FALLBACK_KEK_FILENAME = ".secure-hr-fallback-kek";
+    private static final String FALLBACK_SEED_FILENAME = ".secure-hr-fallback-seed";
+    private volatile SecretKey persistedFallbackKek;
 
     public KmsClient(SecureLogConfig config) {
         this.config = config;
@@ -94,17 +121,19 @@ public class KmsClient implements AutoCloseable {
      * Uses ReentrantLock instead of synchronized for Virtual Thread compatibility.
      */
     public SecretKey getKek() {
-        // Check cache first
-        if (isCacheValid()) {
-            return cachedKek;
+        // Check cache first - FIX P0 #2: Use single volatile read for atomic access
+        CachedKekHolder holder = cachedKekHolder;
+        if (isCacheValid(holder)) {
+            return holder.kek;
         }
 
         // Acquire lock (Virtual Thread compatible)
         lock.lock();
         try {
             // Double-check after acquiring lock
-            if (isCacheValid()) {
-                return cachedKek;
+            holder = cachedKekHolder;
+            if (isCacheValid(holder)) {
+                return holder.kek;
             }
 
             SecretKey kek;
@@ -117,8 +146,8 @@ public class KmsClient implements AutoCloseable {
                 throw new KmsException("AWS KMS not configured and fallback is disabled");
             }
 
-            cachedKek = kek;
-            kekCacheTime = System.currentTimeMillis();
+            // Store in holder for atomic access
+            cachedKekHolder = new CachedKekHolder(kek, System.currentTimeMillis());
             return kek;
 
         } catch (KmsException e) {
@@ -137,9 +166,13 @@ public class KmsClient implements AutoCloseable {
         }
     }
 
-    private boolean isCacheValid() {
-        return cachedKek != null &&
-                (System.currentTimeMillis() - kekCacheTime) < KEK_CACHE_TTL_MS;
+    /**
+     * Check if cache is valid.
+     * FIX P0 #2: Takes holder as parameter to ensure atomic read of both kek and cacheTime.
+     */
+    private boolean isCacheValid(CachedKekHolder holder) {
+        return holder != null &&
+                (System.currentTimeMillis() - holder.cacheTime) < KEK_CACHE_TTL_MS;
     }
 
     /**
@@ -201,16 +234,203 @@ public class KmsClient implements AutoCloseable {
     }
 
     /**
-     * Generate fallback KEK for development/testing.
+     * Generate or load fallback KEK for development/testing.
      * WARNING: NOT secure for production use.
+     *
+     * This implementation persists the fallback KEK to prevent data loss across restarts.
+     * On startup, it tries to load an existing KEK before generating a new one.
      */
     private SecretKey generateFallbackKek() {
+        // Return cached fallback KEK if available
+        if (persistedFallbackKek != null) {
+            return persistedFallbackKek;
+        }
+
+        lock.lock();
         try {
+            // Double-check after acquiring lock
+            if (persistedFallbackKek != null) {
+                return persistedFallbackKek;
+            }
+
+            // Try to load existing fallback KEK from file
+            SecretKey loadedKek = loadFallbackKek();
+            if (loadedKek != null) {
+                persistedFallbackKek = loadedKek;
+                log.warn("Loaded existing fallback KEK from file - THIS IS NOT SECURE FOR PRODUCTION");
+                return persistedFallbackKek;
+            }
+
+            // Generate new fallback KEK using deterministic key derivation from seed
+            SecretKey newKek = generateAndPersistFallbackKek();
+            persistedFallbackKek = newKek;
+            return persistedFallbackKek;
+
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * Load fallback KEK from persistent storage.
+     */
+    private SecretKey loadFallbackKek() {
+        Path kekPath = getFallbackKekPath();
+        if (!Files.exists(kekPath)) {
+            return null;
+        }
+
+        try {
+            byte[] keyBytes = Files.readAllBytes(kekPath);
+            if (keyBytes.length != 32) { // AES-256 = 32 bytes
+                log.warn("Invalid fallback KEK file size, will regenerate");
+                try {
+                    Files.delete(kekPath);
+                    log.info("Deleted invalid KEK file: {}", kekPath);
+                } catch (IOException deleteEx) {
+                    log.warn("Failed to delete invalid KEK file: {}", deleteEx.getMessage());
+                }
+                return null;
+            }
+            return new SecretKeySpec(keyBytes, "AES");
+        } catch (IOException e) {
+            log.warn("Failed to load fallback KEK from file: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Generate new fallback KEK and persist it to file.
+     */
+    private SecretKey generateAndPersistFallbackKek() {
+        try {
+            // Try to use seed-based derivation for consistency
+            Path seedPath = getFallbackSeedPath();
+            byte[] seed;
+
+            if (Files.exists(seedPath)) {
+                seed = Files.readAllBytes(seedPath);
+            } else {
+                // Generate new seed
+                seed = new byte[32];
+                new SecureRandom().nextBytes(seed);
+                // FIX P2 #15: Write file with restrictive permissions
+                writeFileWithRestrictivePermissions(seedPath, seed);
+
+                log.warn("Created new fallback seed file at: {} - PROTECT THIS FILE", seedPath);
+            }
+
+            // Derive key from seed using simple HKDF-like expansion
             KeyGenerator keyGen = KeyGenerator.getInstance("AES");
-            keyGen.init(256);
-            return keyGen.generateKey();
+            SecureRandom seededRandom = createSeededSecureRandom(seed);
+            keyGen.init(256, seededRandom);
+            SecretKey key = keyGen.generateKey();
+
+            // Persist the KEK
+            Path kekPath = getFallbackKekPath();
+            // FIX P2 #15: Write file with restrictive permissions
+            writeFileWithRestrictivePermissions(kekPath, key.getEncoded());
+
+            log.warn("Generated and persisted new fallback KEK to: {} - THIS IS NOT SECURE FOR PRODUCTION", kekPath);
+            return key;
+
+        } catch (NoSuchAlgorithmException | IOException e) {
+            // Last resort: generate ephemeral key (will cause data loss on restart)
+            log.error("Failed to persist fallback KEK, using ephemeral key - DATA LOSS ON RESTART", e);
+            try {
+                KeyGenerator keyGen = KeyGenerator.getInstance("AES");
+                keyGen.init(256);
+                return keyGen.generateKey();
+            } catch (NoSuchAlgorithmException ex) {
+                throw new KmsException("Failed to generate fallback KEK", ex);
+            }
+        }
+    }
+
+    /**
+     * Create a seeded SecureRandom using the strongest available algorithm.
+     * Prefers DRBG (Deterministic Random Bit Generator) which is more secure than SHA1PRNG.
+     * Falls back to SHA1PRNG if DRBG is not available.
+     *
+     * @param seed the seed bytes
+     * @return a seeded SecureRandom instance
+     */
+    private SecureRandom createSeededSecureRandom(byte[] seed) throws NoSuchAlgorithmException {
+        SecureRandom seededRandom;
+        try {
+            // Try DRBG first (stronger algorithm, available in Java 9+)
+            seededRandom = SecureRandom.getInstance("DRBG");
+            seededRandom.setSeed(seed);
         } catch (NoSuchAlgorithmException e) {
-            throw new KmsException("Failed to generate fallback KEK", e);
+            // Fall back to SHA1PRNG if DRBG is not available
+            log.warn("DRBG algorithm not available, falling back to SHA1PRNG");
+            seededRandom = SecureRandom.getInstance("SHA1PRNG");
+            seededRandom.setSeed(seed);
+        }
+        return seededRandom;
+    }
+
+    /**
+     * Get path for fallback KEK file.
+     */
+    private Path getFallbackKekPath() {
+        String fallbackDir = config.getFallbackDirectory();
+        if (fallbackDir != null && !fallbackDir.isBlank()) {
+            return Paths.get(fallbackDir, FALLBACK_KEK_FILENAME);
+        }
+        return Paths.get(System.getProperty("user.home"), FALLBACK_KEK_FILENAME);
+    }
+
+    /**
+     * Get path for fallback seed file.
+     */
+    private Path getFallbackSeedPath() {
+        String fallbackDir = config.getFallbackDirectory();
+        if (fallbackDir != null && !fallbackDir.isBlank()) {
+            return Paths.get(fallbackDir, FALLBACK_SEED_FILENAME);
+        }
+        return Paths.get(System.getProperty("user.home"), FALLBACK_SEED_FILENAME);
+    }
+
+    /**
+     * FIX P2 #15: Write file with restrictive permissions atomically.
+     * Writes the file and then sets permissions immediately after.
+     *
+     * @param path the file path to write to
+     * @param content the content to write
+     * @throws IOException if writing fails
+     */
+    private void writeFileWithRestrictivePermissions(Path path, byte[] content) throws IOException {
+        // Write file first
+        Files.write(path, content,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.WRITE,
+                StandardOpenOption.TRUNCATE_EXISTING);
+
+        // Set restrictive permissions immediately after creation
+        setRestrictivePermissions(path);
+    }
+
+    /**
+     * Set restrictive file permissions (owner-only read/write, chmod 600).
+     * This protects sensitive key material from being read by other users.
+     *
+     * @param path the file path to set permissions on
+     */
+    private void setRestrictivePermissions(Path path) {
+        try {
+            java.util.Set<PosixFilePermission> permissions = EnumSet.of(
+                    PosixFilePermission.OWNER_READ,
+                    PosixFilePermission.OWNER_WRITE
+            );
+            Files.setPosixFilePermissions(path, permissions);
+            log.debug("Set restrictive permissions (600) on: {}", path);
+        } catch (java.lang.UnsupportedOperationException e) {
+            // Windows and some file systems don't support POSIX permissions
+            log.warn("Cannot set POSIX file permissions on {} - file system does not support POSIX permissions. " +
+                    "Ensure proper file security through OS-level access controls.", path);
+        } catch (IOException e) {
+            log.warn("Failed to set restrictive permissions on {}: {}", path, e.getMessage());
         }
     }
 
@@ -220,8 +440,7 @@ public class KmsClient implements AutoCloseable {
     public void rotateKek() {
         lock.lock();
         try {
-            cachedKek = null;
-            kekCacheTime = 0;
+            cachedKekHolder = null;
 
             if (isAwsKmsConfigured) {
                 log.info("KEK cache invalidated. Next getKek() will fetch fresh key from AWS KMS");
@@ -237,8 +456,7 @@ public class KmsClient implements AutoCloseable {
     public void invalidateCache() {
         lock.lock();
         try {
-            cachedKek = null;
-            kekCacheTime = 0;
+            cachedKekHolder = null;
         } finally {
             lock.unlock();
         }

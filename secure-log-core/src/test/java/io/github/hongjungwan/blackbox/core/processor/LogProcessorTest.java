@@ -6,7 +6,7 @@ import io.github.hongjungwan.blackbox.core.internal.LogProcessor;
 import io.github.hongjungwan.blackbox.core.internal.SemanticDeduplicator;
 import io.github.hongjungwan.blackbox.core.internal.MerkleChain;
 import io.github.hongjungwan.blackbox.core.internal.LogSerializer;
-import io.github.hongjungwan.blackbox.core.internal.LogTransport;
+import io.github.hongjungwan.blackbox.core.internal.ResilientLogTransport;
 import io.github.hongjungwan.blackbox.core.security.PiiMasker;
 import io.github.hongjungwan.blackbox.core.security.EnvelopeEncryption;
 import io.github.hongjungwan.blackbox.core.security.KmsClient;
@@ -33,7 +33,7 @@ class LogProcessorTest {
     private SecureLogConfig config;
 
     @Mock
-    private LogTransport mockTransport;
+    private ResilientLogTransport mockTransport;
 
     @BeforeEach
     void setUp() {

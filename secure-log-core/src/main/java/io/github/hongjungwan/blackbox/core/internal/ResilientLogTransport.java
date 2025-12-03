@@ -10,6 +10,8 @@ import io.github.hongjungwan.blackbox.core.internal.SdkMetrics;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -21,6 +23,7 @@ import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 
 /**
@@ -57,6 +60,9 @@ public class ResilientLogTransport {
     // Replay scheduler
     private ScheduledExecutorService replayScheduler;
     private volatile boolean autoReplayEnabled = false;
+
+    // Counter for unique fallback filenames
+    private final AtomicLong fallbackFileCounter = new AtomicLong(0);
 
     public ResilientLogTransport(SecureLogConfig config, LogSerializer serializer) {
         this.config = config;
@@ -159,7 +165,8 @@ public class ResilientLogTransport {
         try {
             String timestamp = LocalDateTime.now()
                     .format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss-SSS"));
-            Path fallbackFile = fallbackDirectory.resolve("log-" + timestamp + ".zst");
+            long counter = fallbackFileCounter.incrementAndGet();
+            Path fallbackFile = fallbackDirectory.resolve("log-" + timestamp + "-" + counter + ".zst");
 
             Files.write(fallbackFile, data,
                     StandardOpenOption.CREATE,
@@ -215,15 +222,60 @@ public class ResilientLogTransport {
         }
     }
 
+    /**
+     * Replay a single fallback file with file locking to prevent concurrent processing.
+     * Uses FileLock to ensure only one thread/process can replay a given file.
+     *
+     * FIX P2 #13: Validate Zstd data before sending to Kafka.
+     *
+     * @param file the fallback file to replay
+     * @return true if replay succeeded or file was skipped (being processed), false on error
+     */
     private boolean replayFile(Path file) {
-        try {
+        FileLock lock = null;
+        try (FileChannel channel = FileChannel.open(file, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
+            // Try to acquire exclusive lock (non-blocking)
+            lock = channel.tryLock();
+            if (lock == null) {
+                // File is being processed by another thread/process, skip
+                log.debug("File {} is being processed by another thread, skipping", file);
+                return true;  // Not an error, just skip
+            }
+
+            // Read file contents while holding lock
             byte[] data = Files.readAllBytes(file);
 
-            // Use circuit breaker for replay too
+            // FIX P2 #13: Validate Zstd frame before sending
+            if (!isValidZstdFrame(data)) {
+                log.warn("Corrupted fallback file (invalid Zstd frame), deleting: {}", file);
+                // Release lock before delete
+                if (lock != null && lock.isValid()) {
+                    try {
+                        lock.release();
+                    } catch (IOException e) {
+                        log.warn("Failed to release file lock: {}", e.getMessage());
+                    }
+                    lock = null;
+                }
+                Files.delete(file);
+                return true;
+            }
+
+            // Use circuit breaker for replay
             circuitBreaker.execute(() -> {
                 kafkaProducer.send(config.getKafkaTopic(), data);
                 return null;
             });
+
+            // Release lock before secure delete
+            if (lock != null && lock.isValid()) {
+                try {
+                    lock.release();
+                } catch (IOException e) {
+                    log.warn("Failed to release file lock: {}", e.getMessage());
+                }
+                lock = null;
+            }
 
             // Secure delete after successful replay
             secureDelete(file);
@@ -233,7 +285,34 @@ public class ResilientLogTransport {
         } catch (Exception e) {
             log.error("Failed to replay file: {}", file, e);
             return false;
+        } finally {
+            // Ensure lock is released if still valid
+            if (lock != null && lock.isValid()) {
+                try {
+                    lock.release();
+                } catch (IOException e) {
+                    log.warn("Failed to release file lock: {}", e.getMessage());
+                }
+            }
         }
+    }
+
+    /**
+     * FIX P2 #13: Validate Zstd frame by checking magic number.
+     * Zstd magic number: 0xFD2FB528 (little-endian: 0x28, 0xB5, 0x2F, 0xFD)
+     *
+     * @param data the data to validate
+     * @return true if data has valid Zstd magic number
+     */
+    private boolean isValidZstdFrame(byte[] data) {
+        if (data == null || data.length < 4) {
+            return false;
+        }
+        // Zstd magic number in little-endian: 0x28 0xB5 0x2F 0xFD
+        return (data[0] & 0xFF) == 0x28 &&
+               (data[1] & 0xFF) == 0xB5 &&
+               (data[2] & 0xFF) == 0x2F &&
+               (data[3] & 0xFF) == 0xFD;
     }
 
     /**
