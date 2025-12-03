@@ -102,6 +102,9 @@ SecureLogLifecycle.stop():
 ### Backpressure Handling
 When buffer is full, `VirtualAsyncAppender.handleBackpressure()` saves events to fallback storage to prevent data loss.
 
+### Error Recovery Security
+`LogProcessor.process()` ensures PII-masked entry is always sent to fallback on exceptions - original unmasked data never leaks to fallback storage.
+
 ### Key Subsystems
 
 **Context Propagation** (FEAT-09) - `context/` package
@@ -138,7 +141,7 @@ SDK applies defensive null checks at critical points:
 - `PiiMasker`: null key check + ConcurrentModificationException prevention (ArrayList copy)
 - `EnvelopeEncryption`: payload/encrypted field validation, null entry/message check in encrypt()
 - `MerkleChain`: integrity field null check, ThreadLocal MessageDigest caching
-- `LogProcessor`: null deduplicator defensive check
+- `LogProcessor`: null deduplicator defensive check, **예외 시 maskedEntry fallback 보장**
 - `LogEntry`: ClassCastException handling for Map casting
 - `LogSerializer`: negative size validation first, compression level 1-22 range check
 

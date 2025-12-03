@@ -52,11 +52,12 @@ public class LogProcessor {
      * Process a summary entry from deduplication (skips deduplication step)
      */
     private void processSummaryEntry(LogEntry summaryEntry) {
+        LogEntry maskedEntry = null;
         try {
             // Summary entries bypass deduplication (Step 1 skipped)
 
-            // Step 2: PII Masking
-            LogEntry maskedEntry = summaryEntry;
+            // Step 2: PII Masking (do this first and store reference for error handling)
+            maskedEntry = summaryEntry;
             if (config.isPiiMaskingEnabled()) {
                 maskedEntry = piiMasker.mask(summaryEntry);
             }
@@ -83,7 +84,9 @@ public class LogProcessor {
 
         } catch (Exception e) {
             log.error("Error processing deduplication summary entry", e);
-            handleProcessingError(summaryEntry, e);
+            // Use masked entry if available, otherwise mask now to prevent PII leak to fallback
+            LogEntry safeEntry = (maskedEntry != null) ? maskedEntry : piiMasker.mask(summaryEntry);
+            handleProcessingError(safeEntry, e);
         }
     }
 
@@ -91,6 +94,7 @@ public class LogProcessor {
      * Process a log entry through the full pipeline
      */
     public void process(LogEntry entry) {
+        LogEntry maskedEntry = null;
         try {
             // Step 1: Semantic Deduplication (FEAT-02)
             if (config.isDeduplicationEnabled() && deduplicator != null) {
@@ -100,8 +104,8 @@ public class LogProcessor {
                 }
             }
 
-            // Step 2: PII Masking (FEAT-01)
-            LogEntry maskedEntry = entry;
+            // Step 2: PII Masking (FEAT-01) - do this early and store reference for error handling
+            maskedEntry = entry;
             if (config.isPiiMaskingEnabled()) {
                 maskedEntry = piiMasker.mask(entry);
             }
@@ -126,8 +130,9 @@ public class LogProcessor {
 
         } catch (Exception e) {
             log.error("Error processing log entry", e);
-            // Fallback handling
-            handleProcessingError(entry, e);
+            // Use masked entry if available, otherwise mask now to prevent PII leak to fallback
+            LogEntry safeEntry = (maskedEntry != null) ? maskedEntry : piiMasker.mask(entry);
+            handleProcessingError(safeEntry, e);
         }
     }
 
