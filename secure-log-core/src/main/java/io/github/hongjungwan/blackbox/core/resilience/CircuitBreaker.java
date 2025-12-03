@@ -61,7 +61,12 @@ public final class CircuitBreaker {
     }
 
     /**
-     * Execute operation with circuit breaker protection
+     * Execute operation with circuit breaker protection.
+     *
+     * @param <T> the return type of the operation
+     * @param operation the operation to execute
+     * @return the result of the operation
+     * @throws CircuitBreakerOpenException if the circuit breaker is open
      */
     public <T> T execute(Supplier<T> operation) throws CircuitBreakerOpenException {
         // Check if we should allow the call
@@ -91,7 +96,9 @@ public final class CircuitBreaker {
     }
 
     /**
-     * Check if call is permitted
+     * Check if a call is permitted based on current circuit breaker state.
+     *
+     * @return true if the call is permitted, false if circuit is open
      */
     public boolean tryAcquirePermission() {
         stateLock.lock();
@@ -122,7 +129,7 @@ public final class CircuitBreaker {
     }
 
     /**
-     * Record successful operation
+     * Record a successful operation and potentially transition state.
      */
     public void onSuccess() {
         State currentState = state.get();
@@ -139,7 +146,9 @@ public final class CircuitBreaker {
     }
 
     /**
-     * Record failed operation
+     * Record a failed operation and potentially transition to OPEN state.
+     *
+     * @param e the exception that caused the failure
      */
     public void onFailure(Exception e) {
         State currentState = state.get();
@@ -263,7 +272,7 @@ public final class CircuitBreaker {
     }
 
     /**
-     * Force reset to closed state (for testing/admin)
+     * Force reset to CLOSED state (for testing/admin purposes).
      */
     public void reset() {
         stateLock.lock();
@@ -291,7 +300,9 @@ public final class CircuitBreaker {
     public int getFailureCount() { return failureCount.get(); }
 
     /**
-     * Get metrics snapshot
+     * Get a snapshot of current circuit breaker metrics.
+     *
+     * @return the current metrics including state, failure count, and timing info
      */
     public Metrics getMetrics() {
         return new Metrics(
@@ -305,7 +316,10 @@ public final class CircuitBreaker {
     }
 
     /**
-     * Create builder
+     * Create a new builder for constructing a CircuitBreaker.
+     *
+     * @param name the circuit breaker name for identification and logging
+     * @return a new Builder instance
      */
     public static Builder builder(String name) {
         return new Builder(name);
@@ -346,31 +360,66 @@ public final class CircuitBreaker {
             this.name = name;
         }
 
+        /**
+         * Sets the number of failures before transitioning to OPEN state.
+         *
+         * @param threshold the failure threshold (default: 3)
+         * @return this builder for method chaining
+         */
         public Builder failureThreshold(int threshold) {
             this.failureThreshold = threshold;
             return this;
         }
 
+        /**
+         * Sets the number of successes in HALF_OPEN before transitioning to CLOSED.
+         *
+         * @param threshold the success threshold (default: 2)
+         * @return this builder for method chaining
+         */
         public Builder successThreshold(int threshold) {
             this.successThreshold = threshold;
             return this;
         }
 
+        /**
+         * Sets the initial duration to stay in OPEN state before testing recovery.
+         *
+         * @param duration the open duration (default: 30 seconds)
+         * @return this builder for method chaining
+         */
         public Builder openDuration(Duration duration) {
             this.openDuration = duration;
             return this;
         }
 
+        /**
+         * Sets the maximum duration for exponential backoff in OPEN state.
+         *
+         * @param maxDuration the maximum open duration (default: 5 minutes)
+         * @return this builder for method chaining
+         */
         public Builder maxOpenDuration(Duration maxDuration) {
             this.maxOpenDuration = maxDuration;
             return this;
         }
 
+        /**
+         * Sets the listener for state change events.
+         *
+         * @param listener the state change listener
+         * @return this builder for method chaining
+         */
         public Builder onStateChange(StateChangeListener listener) {
             this.stateChangeListener = listener;
             return this;
         }
 
+        /**
+         * Builds the CircuitBreaker instance.
+         *
+         * @return a new CircuitBreaker with the configured settings
+         */
         public CircuitBreaker build() {
             return new CircuitBreaker(this);
         }

@@ -68,7 +68,8 @@ public class LogSerializer {
      *
      * @param entry the log entry to serialize
      * @return compressed binary data
-     * @throws SerializationException if serialization fails or payload exceeds max size
+     * @throws SerializationException if JSON conversion fails due to unserializable fields,
+     *         or if serialized JSON exceeds configured maxPayloadSize (default 100MB)
      */
     public byte[] serialize(LogEntry entry) {
         try {
@@ -103,7 +104,9 @@ public class LogSerializer {
      *
      * @param data the compressed binary data
      * @return the deserialized log entry
-     * @throws SerializationException if deserialization fails or data exceeds max size
+     * @throws SerializationException if Zstd decompression fails due to corrupted or invalid data,
+     *         if decompressed size exceeds MAX_DECOMPRESSED_SIZE (100MB),
+     *         or if JSON parsing fails due to malformed structure
      */
     public LogEntry deserialize(byte[] data) {
         try {

@@ -49,6 +49,8 @@ public interface MaskingStrategy {
 
     /**
      * Get the pattern name for this strategy.
+     *
+     * @return the unique name identifying this masking pattern (e.g., "rrn", "credit_card")
      */
     String getPatternName();
 
@@ -76,6 +78,8 @@ public interface MaskingStrategy {
     /**
      * Priority for strategy selection (lower = higher priority).
      * Default is 500 (NORMAL).
+     *
+     * @return the priority value where lower numbers indicate higher priority
      */
     default int priority() {
         return 500;

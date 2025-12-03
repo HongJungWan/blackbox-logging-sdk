@@ -49,7 +49,12 @@ public final class RetryPolicy {
     }
 
     /**
-     * Execute with retry
+     * Execute an operation with retry according to the configured policy.
+     *
+     * @param <T> the return type of the operation
+     * @param operation the operation to execute
+     * @return the result of the operation if successful
+     * @throws RetryExhaustedException if all retry attempts are exhausted
      */
     public <T> T execute(Supplier<T> operation) throws RetryExhaustedException {
         Exception lastException = null;
@@ -138,14 +143,18 @@ public final class RetryPolicy {
     }
 
     /**
-     * Create default retry policy
+     * Create a default retry policy (3 attempts, 100ms initial delay, 2x multiplier).
+     *
+     * @return a new RetryPolicy with default settings
      */
     public static RetryPolicy defaults() {
         return builder().build();
     }
 
     /**
-     * Create builder
+     * Create a new builder for constructing a RetryPolicy.
+     *
+     * @return a new Builder instance
      */
     public static Builder builder() {
         return new Builder();
@@ -163,36 +172,78 @@ public final class RetryPolicy {
         private Predicate<Exception> retryPredicate;
         private Set<Class<? extends Exception>> retryableExceptions = Set.of();
 
+        /**
+         * Sets the maximum number of retry attempts.
+         *
+         * @param maxAttempts the maximum attempts including initial attempt (default: 3)
+         * @return this builder for method chaining
+         */
         public Builder maxAttempts(int maxAttempts) {
             this.maxAttempts = maxAttempts;
             return this;
         }
 
+        /**
+         * Sets the initial delay before the first retry.
+         *
+         * @param initialDelay the initial delay duration (default: 100ms)
+         * @return this builder for method chaining
+         */
         public Builder initialDelay(Duration initialDelay) {
             this.initialDelay = initialDelay;
             return this;
         }
 
+        /**
+         * Sets the maximum delay between retries.
+         *
+         * @param maxDelay the maximum delay duration (default: 30 seconds)
+         * @return this builder for method chaining
+         */
         public Builder maxDelay(Duration maxDelay) {
             this.maxDelay = maxDelay;
             return this;
         }
 
+        /**
+         * Sets the exponential backoff multiplier.
+         *
+         * @param multiplier the delay multiplier for each retry (default: 2.0)
+         * @return this builder for method chaining
+         */
         public Builder multiplier(double multiplier) {
             this.multiplier = multiplier;
             return this;
         }
 
+        /**
+         * Sets the jitter factor for randomizing delays.
+         *
+         * @param jitterFactor the jitter percentage as decimal (default: 0.25 for 25%)
+         * @return this builder for method chaining
+         */
         public Builder jitterFactor(double jitterFactor) {
             this.jitterFactor = jitterFactor;
             return this;
         }
 
+        /**
+         * Sets a custom predicate to determine if an exception is retryable.
+         *
+         * @param predicate the predicate that returns true for retryable exceptions
+         * @return this builder for method chaining
+         */
         public Builder retryOn(Predicate<Exception> predicate) {
             this.retryPredicate = predicate;
             return this;
         }
 
+        /**
+         * Sets specific exception types that should trigger a retry.
+         *
+         * @param exceptions the exception classes to retry on
+         * @return this builder for method chaining
+         */
         @SafeVarargs
         public final Builder retryOnExceptions(Class<? extends Exception>... exceptions) {
             this.retryableExceptions = Set.of(exceptions);
@@ -200,7 +251,9 @@ public final class RetryPolicy {
         }
 
         /**
-         * No jitter (for testing)
+         * Disable jitter (useful for testing with predictable delays).
+         *
+         * @return this builder for method chaining
          */
         public Builder noJitter() {
             this.jitterFactor = 0;
@@ -208,7 +261,10 @@ public final class RetryPolicy {
         }
 
         /**
-         * Fixed delay (no exponential backoff)
+         * Use fixed delay without exponential backoff.
+         *
+         * @param delay the fixed delay between retries
+         * @return this builder for method chaining
          */
         public Builder fixedDelay(Duration delay) {
             this.initialDelay = delay;
@@ -216,6 +272,11 @@ public final class RetryPolicy {
             return this;
         }
 
+        /**
+         * Builds the RetryPolicy instance.
+         *
+         * @return a new RetryPolicy with the configured settings
+         */
         public RetryPolicy build() {
             return new RetryPolicy(this);
         }

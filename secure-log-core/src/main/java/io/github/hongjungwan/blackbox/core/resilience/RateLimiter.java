@@ -47,14 +47,19 @@ public final class RateLimiter {
     }
 
     /**
-     * Try to acquire a permit without waiting
+     * Try to acquire a single permit without waiting.
+     *
+     * @return true if the permit was acquired, false if no permits available
      */
     public boolean tryAcquire() {
         return tryAcquire(1);
     }
 
     /**
-     * Try to acquire multiple permits without waiting
+     * Try to acquire multiple permits without waiting.
+     *
+     * @param permits the number of permits to acquire
+     * @return true if all permits were acquired, false if insufficient permits available
      */
     public boolean tryAcquire(int permits) {
         refillTokens();
@@ -73,14 +78,16 @@ public final class RateLimiter {
     }
 
     /**
-     * Acquire permit, waiting if necessary
+     * Acquire a single permit, blocking until available.
      */
     public void acquire() {
         acquire(1);
     }
 
     /**
-     * Acquire multiple permits, waiting if necessary
+     * Acquire multiple permits, blocking until all are available.
+     *
+     * @param permits the number of permits to acquire
      */
     public void acquire(int permits) {
         long startTime = System.nanoTime();
@@ -173,7 +180,9 @@ public final class RateLimiter {
     }
 
     /**
-     * Get current available tokens
+     * Get the current number of available tokens.
+     *
+     * @return the number of available tokens after refilling
      */
     public long getAvailableTokens() {
         refillTokens();
@@ -181,7 +190,9 @@ public final class RateLimiter {
     }
 
     /**
-     * Get metrics
+     * Get a snapshot of current rate limiter metrics.
+     *
+     * @return the current metrics including token counts and acquisition statistics
      */
     public Metrics getMetrics() {
         return new Metrics(
@@ -196,7 +207,7 @@ public final class RateLimiter {
     }
 
     /**
-     * Reset rate limiter to initial state
+     * Reset rate limiter to initial state with full tokens.
      */
     public void reset() {
         refillLock.lock();
@@ -214,7 +225,10 @@ public final class RateLimiter {
     public String getName() { return name; }
 
     /**
-     * Create builder
+     * Create a new builder for constructing a RateLimiter.
+     *
+     * @param name the rate limiter name for identification
+     * @return a new Builder instance
      */
     public static Builder builder(String name) {
         return new Builder(name);
@@ -261,23 +275,43 @@ public final class RateLimiter {
             this.name = name;
         }
 
+        /**
+         * Sets the maximum number of tokens (burst capacity).
+         *
+         * @param maxTokens the maximum token count (default: 1000)
+         * @return this builder for method chaining
+         */
         public Builder maxTokens(long maxTokens) {
             this.maxTokens = maxTokens;
             return this;
         }
 
+        /**
+         * Sets the token refill rate.
+         *
+         * @param tokensPerSecond the number of tokens to add per second (default: 100)
+         * @return this builder for method chaining
+         */
         public Builder refillRate(long tokensPerSecond) {
             this.refillRate = tokensPerSecond;
             return this;
         }
 
+        /**
+         * Sets the initial number of tokens.
+         *
+         * @param tokens the initial token count (default: maxTokens)
+         * @return this builder for method chaining
+         */
         public Builder initialTokens(long tokens) {
             this.initialTokens = tokens;
             return this;
         }
 
         /**
-         * Start empty (for gradual ramp-up)
+         * Start with zero tokens (for gradual ramp-up).
+         *
+         * @return this builder for method chaining
          */
         public Builder startEmpty() {
             this.initialTokens = 0;
@@ -285,7 +319,10 @@ public final class RateLimiter {
         }
 
         /**
-         * Configure for log rate (logs per second)
+         * Configure for log rate with 2x burst capacity.
+         *
+         * @param rate the target logs per second rate
+         * @return this builder for method chaining
          */
         public Builder logsPerSecond(long rate) {
             this.refillRate = rate;
@@ -293,6 +330,11 @@ public final class RateLimiter {
             return this;
         }
 
+        /**
+         * Builds the RateLimiter instance.
+         *
+         * @return a new RateLimiter with the configured settings
+         */
         public RateLimiter build() {
             if (initialTokens < 0) {
                 initialTokens = maxTokens;

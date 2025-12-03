@@ -78,6 +78,10 @@ public class EnvelopeEncryption {
      * Encrypt log entry using envelope encryption.
      *
      * FIX P3 #21: Add input validation for null entry and null message.
+     *
+     * @param entry the log entry to encrypt
+     * @return a new LogEntry with encrypted payload and encrypted DEK
+     * @throws EncryptionException if encryption fails or input is invalid
      */
     public LogEntry encrypt(LogEntry entry) {
         // FIX P3 #21: Validate input
@@ -292,6 +296,10 @@ public class EnvelopeEncryption {
      * Decrypt log entry (for authorized access only).
      *
      * FIX P1 #11: Add validation of encryptedDek field before decryption.
+     *
+     * @param encryptedEntry the encrypted log entry to decrypt
+     * @return a new LogEntry with decrypted payload
+     * @throws EncryptionException if decryption fails or encrypted DEK is invalid
      */
     public LogEntry decrypt(LogEntry encryptedEntry) {
         try {

@@ -70,6 +70,9 @@ public class PiiMasker {
 
     /**
      * Mask PII fields in log entry.
+     *
+     * @param entry the log entry containing potential PII data
+     * @return a new LogEntry with PII fields masked
      */
     public LogEntry mask(LogEntry entry) {
         // Mask PII in message field

@@ -38,6 +38,8 @@ public interface TransportProvider {
 
     /**
      * Get the transport name.
+     *
+     * @return the unique name identifying this transport provider
      */
     String getName();
 
@@ -65,17 +67,17 @@ public interface TransportProvider {
     /**
      * Check if this transport is healthy.
      *
-     * @return true if transport is ready
+     * @return true if the transport is ready to send log entries
      */
     boolean isHealthy();
 
     /**
-     * Flush any pending entries.
+     * Flush any pending entries to the destination.
      */
     void flush();
 
     /**
-     * Shutdown the transport gracefully.
+     * Shutdown the transport gracefully, flushing pending entries.
      */
     void close();
 

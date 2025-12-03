@@ -38,13 +38,15 @@ public interface EncryptionProvider {
 
     /**
      * Get the provider name.
+     *
+     * @return the unique name identifying this provider
      */
     String getName();
 
     /**
      * Generate a new Data Encryption Key (DEK).
      *
-     * @return A new AES-256 secret key
+     * @return a new AES-256 secret key
      */
     SecretKey generateDek();
 
@@ -67,7 +69,7 @@ public interface EncryptionProvider {
     /**
      * Check if this provider is available (e.g., KMS is reachable).
      *
-     * @return true if provider is ready
+     * @return true if the provider is ready to perform encryption operations
      */
     boolean isAvailable();
 

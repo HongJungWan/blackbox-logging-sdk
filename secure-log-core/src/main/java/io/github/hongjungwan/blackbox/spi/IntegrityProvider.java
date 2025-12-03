@@ -35,6 +35,8 @@ public interface IntegrityProvider {
 
     /**
      * Get the provider name.
+     *
+     * @return the unique name identifying this provider
      */
     String getName();
 

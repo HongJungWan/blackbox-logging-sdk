@@ -28,6 +28,9 @@ public final class SecureLoggerFactory {
 
     /**
      * Get or create a logger with the specified name.
+     *
+     * @param name the logger name
+     * @return a SecureLogger instance with the specified name
      */
     public static SecureLogger getLogger(String name) {
         return LOGGER_CACHE.computeIfAbsent(name, SecureLoggerFactory::createLogger);
@@ -35,6 +38,9 @@ public final class SecureLoggerFactory {
 
     /**
      * Get or create a logger for the specified class.
+     *
+     * @param clazz the class to create a logger for
+     * @return a SecureLogger instance for the class
      */
     public static SecureLogger getLogger(Class<?> clazz) {
         return getLogger(clazz.getName());
@@ -42,6 +48,8 @@ public final class SecureLoggerFactory {
 
     /**
      * Set the logger provider (for testing or custom implementations).
+     *
+     * @param newProvider the LoggerProvider to use for creating loggers
      */
     public static void setProvider(LoggerProvider newProvider) {
         provider = newProvider;
@@ -49,7 +57,7 @@ public final class SecureLoggerFactory {
     }
 
     /**
-     * Reset to default provider.
+     * Reset to default provider and clear the logger cache.
      */
     public static void reset() {
         provider = null;
