@@ -8,7 +8,10 @@ import io.github.hongjungwan.blackbox.api.domain.LogEntry;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 
@@ -107,11 +110,17 @@ public class PiiMasker {
      *   <li>Using a custom LogEntry builder that accepts pre-masked payloads</li>
      *   <li>Implementing a thread-local map pool (with careful size management)</li>
      * </ul>
+     *
+     * FIX P2 #16: Copy map entries before iteration to prevent ConcurrentModificationException.
      */
     private Map<String, Object> maskMap(Map<String, Object> map) {
-        Map<String, Object> masked = new HashMap<>(map.size());
+        Map<String, Object> masked = new LinkedHashMap<>(map.size());
 
-        for (Map.Entry<String, Object> entry : map.entrySet()) {
+        // FIX P2 #16: Create a copy of entries to avoid ConcurrentModificationException
+        // when the input map is modified concurrently during iteration
+        List<Map.Entry<String, Object>> entries = new ArrayList<>(map.entrySet());
+
+        for (Map.Entry<String, Object> entry : entries) {
             String key = entry.getKey();
             Object value = entry.getValue();
 

@@ -40,6 +40,19 @@ public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEve
     // Consumer thread reference
     private Thread consumerThread;
 
+    /**
+     * FIX P1 #6: Use a completion signal from consumer instead of size checks.
+     * MPSC queue size() is not atomic with polling, so we use this flag to signal
+     * when the consumer has finished processing all events.
+     */
+    private final AtomicBoolean consumerFinished = new AtomicBoolean(false);
+
+    /**
+     * FIX P2 #17: Use a unique ID field instead of relying on thread name for identification.
+     * Thread names can be duplicated across Virtual Threads.
+     */
+    private final String consumerId = "secure-log-consumer-" + System.nanoTime();
+
     // Backpressure metrics - use AtomicLong to prevent race conditions
     private final AtomicLong droppedEvents = new AtomicLong(0);
 
@@ -63,19 +76,14 @@ public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEve
         if (isRunning.compareAndSet(true, false)) {
             addInfo("VirtualAsyncAppender stopping...");
 
-            // Wait for buffer to drain (max 10 seconds)
-            // Use more robust draining with size check to detect stuck buffers
+            /**
+             * FIX P1 #6: Wait for consumer to signal completion instead of relying on size checks.
+             * MPSC queue size() is not atomic with polling operations, so we use consumerFinished flag.
+             */
             int waitCount = 0;
-            int previousSize = buffer.size();
-            while (previousSize > 0 && waitCount < 100) {
+            while (!consumerFinished.get() && waitCount < 100) {
                 LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(100));
                 waitCount++;
-                int currentSize = buffer.size();
-                if (currentSize == previousSize) {
-                    // No progress, buffer might be stuck
-                    break;
-                }
-                previousSize = currentSize;
             }
 
             // Drain remaining events to fallback storage if buffer not fully drained
@@ -134,14 +142,20 @@ public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEve
     private void startConsumerLoop() {
         executor.submit(() -> {
             consumerThread = Thread.currentThread();
-            Thread.currentThread().setName("secure-log-consumer");
+            // FIX P2 #17: Use unique consumerId for thread name
+            Thread.currentThread().setName(consumerId);
 
-            while (isRunning.get() || !buffer.isEmpty()) {
-                try {
-                    processNextBatch();
-                } catch (Exception e) {
-                    addError("Error in consumer loop", e);
+            try {
+                while (isRunning.get() || !buffer.isEmpty()) {
+                    try {
+                        processNextBatch();
+                    } catch (Exception e) {
+                        addError("[" + consumerId + "] Error in consumer loop", e);
+                    }
                 }
+            } finally {
+                // FIX P1 #6: Signal that consumer has finished processing
+                consumerFinished.set(true);
             }
         });
     }

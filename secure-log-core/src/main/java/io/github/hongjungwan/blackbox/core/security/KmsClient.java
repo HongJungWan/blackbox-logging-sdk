@@ -43,9 +43,23 @@ public class KmsClient implements AutoCloseable {
     private final ReentrantLock lock = new ReentrantLock();
     private final boolean isAwsKmsConfigured;
 
-    // Cached KEK (with TTL)
-    private volatile SecretKey cachedKek;
-    private volatile long kekCacheTime;
+    /**
+     * FIX P0 #2: Use a holder class to ensure atomic reads of cached KEK and its cache time.
+     * Previously, cachedKek and kekCacheTime were read separately without atomicity,
+     * which could cause race conditions where stale KEK could be returned.
+     */
+    private static class CachedKekHolder {
+        final SecretKey kek;
+        final long cacheTime;
+
+        CachedKekHolder(SecretKey kek, long cacheTime) {
+            this.kek = kek;
+            this.cacheTime = cacheTime;
+        }
+    }
+
+    // Cached KEK (with TTL) - single volatile reference for atomic access
+    private volatile CachedKekHolder cachedKekHolder;
     private static final long KEK_CACHE_TTL_MS = 300_000; // 5 minutes
 
     // Fallback KEK persistence
@@ -107,17 +121,19 @@ public class KmsClient implements AutoCloseable {
      * Uses ReentrantLock instead of synchronized for Virtual Thread compatibility.
      */
     public SecretKey getKek() {
-        // Check cache first
-        if (isCacheValid()) {
-            return cachedKek;
+        // Check cache first - FIX P0 #2: Use single volatile read for atomic access
+        CachedKekHolder holder = cachedKekHolder;
+        if (isCacheValid(holder)) {
+            return holder.kek;
         }
 
         // Acquire lock (Virtual Thread compatible)
         lock.lock();
         try {
             // Double-check after acquiring lock
-            if (isCacheValid()) {
-                return cachedKek;
+            holder = cachedKekHolder;
+            if (isCacheValid(holder)) {
+                return holder.kek;
             }
 
             SecretKey kek;
@@ -130,8 +146,8 @@ public class KmsClient implements AutoCloseable {
                 throw new KmsException("AWS KMS not configured and fallback is disabled");
             }
 
-            cachedKek = kek;
-            kekCacheTime = System.currentTimeMillis();
+            // Store in holder for atomic access
+            cachedKekHolder = new CachedKekHolder(kek, System.currentTimeMillis());
             return kek;
 
         } catch (KmsException e) {
@@ -150,9 +166,13 @@ public class KmsClient implements AutoCloseable {
         }
     }
 
-    private boolean isCacheValid() {
-        return cachedKek != null &&
-                (System.currentTimeMillis() - kekCacheTime) < KEK_CACHE_TTL_MS;
+    /**
+     * Check if cache is valid.
+     * FIX P0 #2: Takes holder as parameter to ensure atomic read of both kek and cacheTime.
+     */
+    private boolean isCacheValid(CachedKekHolder holder) {
+        return holder != null &&
+                (System.currentTimeMillis() - holder.cacheTime) < KEK_CACHE_TTL_MS;
     }
 
     /**
@@ -294,13 +314,8 @@ public class KmsClient implements AutoCloseable {
                 // Generate new seed
                 seed = new byte[32];
                 new SecureRandom().nextBytes(seed);
-                Files.write(seedPath, seed,
-                        StandardOpenOption.CREATE,
-                        StandardOpenOption.WRITE,
-                        StandardOpenOption.TRUNCATE_EXISTING);
-
-                // Set restrictive file permissions (owner-only read/write)
-                setRestrictivePermissions(seedPath);
+                // FIX P2 #15: Write file with restrictive permissions
+                writeFileWithRestrictivePermissions(seedPath, seed);
 
                 log.warn("Created new fallback seed file at: {} - PROTECT THIS FILE", seedPath);
             }
@@ -313,13 +328,8 @@ public class KmsClient implements AutoCloseable {
 
             // Persist the KEK
             Path kekPath = getFallbackKekPath();
-            Files.write(kekPath, key.getEncoded(),
-                    StandardOpenOption.CREATE,
-                    StandardOpenOption.WRITE,
-                    StandardOpenOption.TRUNCATE_EXISTING);
-
-            // Set restrictive file permissions (owner-only read/write)
-            setRestrictivePermissions(kekPath);
+            // FIX P2 #15: Write file with restrictive permissions
+            writeFileWithRestrictivePermissions(kekPath, key.getEncoded());
 
             log.warn("Generated and persisted new fallback KEK to: {} - THIS IS NOT SECURE FOR PRODUCTION", kekPath);
             return key;
@@ -383,6 +393,25 @@ public class KmsClient implements AutoCloseable {
     }
 
     /**
+     * FIX P2 #15: Write file with restrictive permissions atomically.
+     * Writes the file and then sets permissions immediately after.
+     *
+     * @param path the file path to write to
+     * @param content the content to write
+     * @throws IOException if writing fails
+     */
+    private void writeFileWithRestrictivePermissions(Path path, byte[] content) throws IOException {
+        // Write file first
+        Files.write(path, content,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.WRITE,
+                StandardOpenOption.TRUNCATE_EXISTING);
+
+        // Set restrictive permissions immediately after creation
+        setRestrictivePermissions(path);
+    }
+
+    /**
      * Set restrictive file permissions (owner-only read/write, chmod 600).
      * This protects sensitive key material from being read by other users.
      *
@@ -411,8 +440,7 @@ public class KmsClient implements AutoCloseable {
     public void rotateKek() {
         lock.lock();
         try {
-            cachedKek = null;
-            kekCacheTime = 0;
+            cachedKekHolder = null;
 
             if (isAwsKmsConfigured) {
                 log.info("KEK cache invalidated. Next getKek() will fetch fresh key from AWS KMS");
@@ -428,8 +456,7 @@ public class KmsClient implements AutoCloseable {
     public void invalidateCache() {
         lock.lock();
         try {
-            cachedKek = null;
-            kekCacheTime = 0;
+            cachedKekHolder = null;
         } finally {
             lock.unlock();
         }

@@ -42,7 +42,14 @@ public class LogSerializer {
         this(compressionLevel, DEFAULT_MAX_PAYLOAD_SIZE);
     }
 
+    /**
+     * FIX P3 #18: Validate Zstd compression level range.
+     */
     public LogSerializer(int compressionLevel, long maxPayloadSize) {
+        if (compressionLevel < 1 || compressionLevel > 22) {
+            throw new IllegalArgumentException(
+                    "Zstd compression level must be between 1 and 22, got: " + compressionLevel);
+        }
         this.compressionLevel = compressionLevel;
         this.maxPayloadSize = maxPayloadSize;
         this.objectMapper = createObjectMapper();
@@ -91,6 +98,9 @@ public class LogSerializer {
     /**
      * Deserialize and decompress log entry from binary format.
      *
+     * FIX P1 #8: Reordered size checks - check negative FIRST since it indicates unknown/invalid data.
+     * Zstd returns -1 (ZSTD_CONTENTSIZE_UNKNOWN) for unknown size and -2 (ZSTD_CONTENTSIZE_ERROR) for error.
+     *
      * @param data the compressed binary data
      * @return the deserialized log entry
      * @throws SerializationException if deserialization fails or data exceeds max size
@@ -99,6 +109,12 @@ public class LogSerializer {
         try {
             // Step 1: Decompress with Zstd
             long originalSize = Zstd.decompressedSize(data);
+
+            // FIX P1 #8: Check negative size FIRST (indicates unknown/invalid data)
+            if (originalSize < 0) {
+                throw new SerializationException(
+                        "Invalid decompressed size: " + originalSize + " (corrupted data or unknown size frame?)", null);
+            }
 
             // Validate size to prevent memory exhaustion
             if (originalSize > MAX_DECOMPRESSED_SIZE) {
@@ -111,10 +127,6 @@ public class LogSerializer {
                 throw new SerializationException(
                         "Decompressed size exceeds maximum allowed: " + originalSize +
                                 " bytes (max: " + Integer.MAX_VALUE + " bytes)", null);
-            }
-            if (originalSize < 0) {
-                throw new SerializationException(
-                        "Invalid decompressed size: " + originalSize + " (corrupted data?)", null);
             }
 
             byte[] decompressed = Zstd.decompress(data, (int) originalSize);

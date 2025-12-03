@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.hongjungwan.blackbox.api.SecureLogger;
 import io.github.hongjungwan.blackbox.api.context.LoggingContext;
+import lombok.extern.slf4j.Slf4j;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -16,6 +17,7 @@ import java.util.Map;
  * <p>Automatically integrates with LoggingContext for trace propagation.</p>
  * <p>Payload is preserved in MDC under "secure.payload" key to avoid loss during SLF4J formatting.</p>
  */
+@Slf4j
 public class DefaultSecureLogger implements SecureLogger {
 
     private static final String PAYLOAD_MDC_KEY = "secure.payload";
@@ -143,12 +145,12 @@ public class DefaultSecureLogger implements SecureLogger {
             // Execute
             action.run();
         } finally {
-            // Clear MDC values
+            // FIX P1 #10: Log MDC.remove() exceptions at WARN level instead of silently swallowing
             for (String key : mdcValues.keySet()) {
                 try {
                     MDC.remove(key);
                 } catch (Exception e) {
-                    // Log but don't propagate
+                    log.warn("Failed to remove MDC key '{}': {}", key, e.getMessage());
                 }
             }
         }
@@ -174,18 +176,18 @@ public class DefaultSecureLogger implements SecureLogger {
             // Execute
             action.run();
         } finally {
-            // Clear MDC values
+            // FIX P1 #10: Log MDC.remove() exceptions at WARN level instead of silently swallowing
             for (String key : mdcValues.keySet()) {
                 try {
                     MDC.remove(key);
                 } catch (Exception e) {
-                    // Log but don't propagate
+                    log.warn("Failed to remove MDC key '{}': {}", key, e.getMessage());
                 }
             }
             try {
                 MDC.remove(PAYLOAD_MDC_KEY);
             } catch (Exception e) {
-                // Log but don't propagate
+                log.warn("Failed to remove MDC key '{}': {}", PAYLOAD_MDC_KEY, e.getMessage());
             }
         }
     }

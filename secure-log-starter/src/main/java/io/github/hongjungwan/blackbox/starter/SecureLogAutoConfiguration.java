@@ -63,7 +63,10 @@ public class SecureLogAutoConfiguration {
         return new PiiMasker(config);
     }
 
-    @Bean
+    /**
+     * FIX P3 #23: Add destroyMethod for proper resource cleanup.
+     */
+    @Bean(destroyMethod = "close")
     @ConditionalOnMissingBean
     public KmsClient kmsClient(SecureLogConfig config) {
         return new KmsClient(config);
@@ -93,7 +96,10 @@ public class SecureLogAutoConfiguration {
         return new LogSerializer();
     }
 
-    @Bean
+    /**
+     * FIX P3 #23: Add destroyMethod for proper resource cleanup.
+     */
+    @Bean(destroyMethod = "close")
     @ConditionalOnMissingBean
     public ResilientLogTransport logTransport(SecureLogConfig config, LogSerializer serializer) {
         return new ResilientLogTransport(config, serializer);

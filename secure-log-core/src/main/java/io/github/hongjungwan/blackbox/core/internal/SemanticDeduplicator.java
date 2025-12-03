@@ -104,32 +104,39 @@ public class SemanticDeduplicator implements AutoCloseable {
     }
 
     /**
-     * Check if log entry is a duplicate within the sliding window
+     * Check if log entry is a duplicate within the sliding window.
+     *
+     * FIX P1 #9: Clarified counter logic. The counter tracks total occurrences.
+     * - Counter starts at 0 when entry is first created
+     * - Each call to isDuplicate increments the counter
+     * - After N calls, counter value is N
+     * - isDuplicate returns false for first call (count becomes 1)
+     * - isDuplicate returns true for subsequent calls (count > 1)
      *
      * @return true if duplicate (should skip), false if unique (should process)
      */
     public boolean isDuplicate(LogEntry entry) {
         LogSignature signature = LogSignature.from(entry);
 
+        // Get or create entry. New entries start with count=0
         DeduplicationEntry dedup = cache.get(signature, key -> new DeduplicationEntry(entry));
 
         if (dedup == null) {
             return false;
         }
 
-        // Increment counter atomically
+        // Increment counter atomically and get the new value
+        // First call: count becomes 1 (not a duplicate)
+        // Subsequent calls: count > 1 (duplicate)
         int count = dedup.counter.incrementAndGet();
 
-        // First occurrence: not a duplicate
-        // Note: count is 1 for the first call since we start at 0 and increment
-        // The firstEntry is already set in the DeduplicationEntry constructor
+        // First occurrence: count is 1, not a duplicate
         if (count == 1) {
             return false;
         }
 
-        // Duplicate detected
+        // Duplicate detected (count >= 2 means we've seen this at least once before)
         // When deduplication window expires (cache eviction), summary log will be emitted via callback
-
         return true;
     }
 
@@ -293,10 +300,14 @@ public class SemanticDeduplicator implements AutoCloseable {
     }
 
     /**
-     * Deduplication entry with atomic counter and first entry reference
+     * Deduplication entry with atomic counter and first entry reference.
+     *
+     * FIX P1 #9: Counter starts at 0 and increments on every call to isDuplicate.
+     * After N calls, count will be N. First call returns false (not duplicate),
+     * subsequent calls return true (duplicate).
      */
     static class DeduplicationEntry {
-        private final AtomicInteger counter = new AtomicInteger(0);
+        private final AtomicInteger counter = new AtomicInteger(0); // Start at 0
         private final long firstSeenTimestamp = System.currentTimeMillis();
         private volatile LogEntry firstEntry;
 

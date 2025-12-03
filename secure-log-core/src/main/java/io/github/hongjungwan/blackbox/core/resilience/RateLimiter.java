@@ -119,15 +119,20 @@ public final class RateLimiter {
     }
 
     /**
-     * Refill tokens based on elapsed time
+     * Refill tokens based on elapsed time.
+     *
+     * FIX P0 #3: Prevent integer overflow in tokensToAdd calculation.
+     * Previously, (elapsedNanos * refillRate) could overflow Long.MAX_VALUE
+     * when elapsedNanos is large (e.g., after system pause) and refillRate is high.
+     * Fix: Divide first, then multiply for the remainder to maintain precision.
      */
     private void refillTokens() {
         long now = System.nanoTime();
         long lastRefill = lastRefillTime.get();
         long elapsedNanos = now - lastRefill;
 
-        // Calculate tokens to add
-        long tokensToAdd = (elapsedNanos * refillRate) / TimeUnit.SECONDS.toNanos(1);
+        // Calculate tokens to add with overflow protection
+        long tokensToAdd = calculateTokensToAdd(elapsedNanos);
 
         if (tokensToAdd > 0) {
             // Use lock for atomic update of both values
@@ -136,7 +141,7 @@ public final class RateLimiter {
                     // Recheck after acquiring lock
                     lastRefill = lastRefillTime.get();
                     elapsedNanos = now - lastRefill;
-                    tokensToAdd = (elapsedNanos * refillRate) / TimeUnit.SECONDS.toNanos(1);
+                    tokensToAdd = calculateTokensToAdd(elapsedNanos);
 
                     if (tokensToAdd > 0) {
                         long newTokens = Math.min(maxTokens, availableTokens.get() + tokensToAdd);
@@ -148,6 +153,23 @@ public final class RateLimiter {
                 }
             }
         }
+    }
+
+    /**
+     * Calculate tokens to add from elapsed nanoseconds with overflow protection.
+     * FIX P0 #3: Reorder calculation to divide first, preventing overflow.
+     */
+    private long calculateTokensToAdd(long elapsedNanos) {
+        long nanosPerSecond = TimeUnit.SECONDS.toNanos(1);
+        // Divide first to prevent overflow
+        long fullSeconds = elapsedNanos / nanosPerSecond;
+        long tokensFromFullSeconds = fullSeconds * refillRate;
+
+        // Calculate remaining nanos precision without overflow
+        long remainingNanos = elapsedNanos % nanosPerSecond;
+        long tokensFromRemainder = (remainingNanos * refillRate) / nanosPerSecond;
+
+        return tokensFromFullSeconds + tokensFromRemainder;
     }
 
     /**

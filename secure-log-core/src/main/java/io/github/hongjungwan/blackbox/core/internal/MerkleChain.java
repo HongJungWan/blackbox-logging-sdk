@@ -52,6 +52,18 @@ public class MerkleChain {
     private static final ObjectMapper CANONICAL_MAPPER = new ObjectMapper()
             .configure(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS, true);
 
+    /**
+     * FIX P3 #20: Use ThreadLocal MessageDigest to avoid creating new instances in hot paths.
+     * MessageDigest instances are not thread-safe, so we use ThreadLocal for safe reuse.
+     */
+    private static final ThreadLocal<MessageDigest> DIGEST_CACHE = ThreadLocal.withInitial(() -> {
+        try {
+            return MessageDigest.getInstance(HASH_ALGORITHM);
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException("Hash algorithm not available: " + HASH_ALGORITHM, e);
+        }
+    });
+
     private final ReentrantLock lock = new ReentrantLock();
     private volatile String previousHash = "0000000000000000000000000000000000000000000000000000000000000000";
 
@@ -88,34 +100,33 @@ public class MerkleChain {
     }
 
     /**
-     * Calculate SHA-256 hash of log entry
+     * Calculate SHA-256 hash of log entry.
+     *
+     * FIX P3 #20: Use ThreadLocal MessageDigest for better performance.
      */
     private String calculateHash(LogEntry entry, String previousHash) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance(HASH_ALGORITHM);
+        // FIX P3 #20: Get cached MessageDigest from ThreadLocal and reset it
+        MessageDigest digest = DIGEST_CACHE.get();
+        digest.reset();
 
-            // Hash components
-            digest.update(String.valueOf(entry.getTimestamp()).getBytes(StandardCharsets.UTF_8));
-            digest.update(entry.getLevel().getBytes(StandardCharsets.UTF_8));
-            digest.update(entry.getMessage().getBytes(StandardCharsets.UTF_8));
-            digest.update(previousHash.getBytes(StandardCharsets.UTF_8));
+        // Hash components
+        digest.update(String.valueOf(entry.getTimestamp()).getBytes(StandardCharsets.UTF_8));
+        digest.update(entry.getLevel().getBytes(StandardCharsets.UTF_8));
+        digest.update(entry.getMessage().getBytes(StandardCharsets.UTF_8));
+        digest.update(previousHash.getBytes(StandardCharsets.UTF_8));
 
-            if (entry.getPayload() != null) {
-                try {
-                    String canonicalJson = CANONICAL_MAPPER.writeValueAsString(entry.getPayload());
-                    digest.update(canonicalJson.getBytes(StandardCharsets.UTF_8));
-                } catch (Exception e) {
-                    // Fallback to toString if serialization fails
-                    digest.update(entry.getPayload().toString().getBytes(StandardCharsets.UTF_8));
-                }
+        if (entry.getPayload() != null) {
+            try {
+                String canonicalJson = CANONICAL_MAPPER.writeValueAsString(entry.getPayload());
+                digest.update(canonicalJson.getBytes(StandardCharsets.UTF_8));
+            } catch (Exception e) {
+                // Fallback to toString if serialization fails
+                digest.update(entry.getPayload().toString().getBytes(StandardCharsets.UTF_8));
             }
-
-            byte[] hashBytes = digest.digest();
-            return HexFormat.of().formatHex(hashBytes);
-
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException("Hash algorithm not available: " + HASH_ALGORITHM, e);
         }
+
+        byte[] hashBytes = digest.digest();
+        return HexFormat.of().formatHex(hashBytes);
     }
 
     /**

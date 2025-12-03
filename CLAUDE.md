@@ -93,11 +93,14 @@ LogEvent → VirtualAsyncAppender → LogProcessor Pipeline:
 ### Graceful Shutdown
 ```
 SecureLogLifecycle.stop():
-  1. VirtualAsyncAppender.stop() - 10s buffer drain timeout
+  1. VirtualAsyncAppender.stop() - 10s buffer drain timeout with progress check
   2. Timeout exceeded → remaining events saved to fallback via processFallback()
   3. LogProcessor.flush() - closes deduplicator executor
   4. MerkleChain.saveState() - persist hash chain state
 ```
+
+### Backpressure Handling
+When buffer is full, `VirtualAsyncAppender.handleBackpressure()` saves events to fallback storage to prevent data loss.
 
 ### Key Subsystems
 
@@ -112,26 +115,41 @@ SecureLogLifecycle.stop():
 - `BuiltInInterceptors` - Sampling, level filter, field redaction
 
 **Resilience** (FEAT-11) - `resilience/` package
-- `CircuitBreaker` - State machine (CLOSED→OPEN→HALF_OPEN), exponential backoff
+- `CircuitBreaker` - State machine (CLOSED→OPEN→HALF_OPEN), exponential backoff with ±20% jitter
 - `RetryPolicy` - Configurable retries with jitter
-- `RateLimiter` - Token bucket algorithm (20K logs/sec default)
+- `RateLimiter` - Token bucket algorithm (20K logs/sec), overflow-safe token calculation
 
 **Metrics** (FEAT-12) - `metrics/` package
 - `SdkMetrics` - Throughput, latency histograms, error rates
 - `MetricsExporter` - Prometheus/JSON format export
 
 ### Security Model
-- **Envelope Encryption**: DEK (AES-256-GCM) + KEK (from KMS), 1-hour DEK rotation
-- **Integrity**: SHA-256 Hash Chain (blockchain-style chaining), persisted across restarts
+- **Envelope Encryption**: DEK (AES-256-GCM) + KEK (from KMS), 1-hour DEK rotation with TOCTOU-safe lock
+- **Integrity**: SHA-256 Hash Chain with canonical JSON serialization (Jackson `ORDER_MAP_ENTRIES_BY_KEYS`)
 - **Crypto-Shredding**: DEK destruction via Destroyable interface (JVM limitations documented)
 - **PII Masking**: Zero-allocation char array manipulation + auto-detection patterns
-- **Fallback KEK**: POSIX file permissions (chmod 600) for development mode security
+- **Fallback KEK**: Atomic file creation with POSIX permissions, invalid files auto-deleted
+- **IV Validation**: Encrypted DEK minimum length (60 bytes) validation before decryption
 
 **Note**: MerkleChain provides per-instance integrity only. In distributed deployments, consider a centralized integrity service.
 
+### Null Safety Patterns
+SDK applies defensive null checks at critical points:
+- `PiiMasker`: null key check + ConcurrentModificationException prevention (ArrayList copy)
+- `EnvelopeEncryption`: payload/encrypted field validation, null entry/message check in encrypt()
+- `MerkleChain`: integrity field null check, ThreadLocal MessageDigest caching
+- `LogProcessor`: null deduplicator defensive check
+- `LogEntry`: ClassCastException handling for Map casting
+- `LogSerializer`: negative size validation first, compression level 1-22 range check
+
+### Cache Synchronization
+- `KmsClient`: `CachedKekHolder` inner class for atomic KEK + timestamp reads
+- `VirtualAsyncAppender`: `consumerFinished` AtomicBoolean for reliable shutdown signaling
+
 ### Enhanced Components
 - `EnhancedLogProcessor` - Pipeline with interceptors + metrics
-- `ResilientLogTransport` - Circuit breaker + retry + rate limiting
+- `ResilientLogTransport` - Circuit breaker + retry + rate limiting + Zstd magic number validation
+- `LoggingContext` - Trace ID with timestamp component for collision prevention
 
 ### SPI (Extension Points) - `spi/` package
 Provider interfaces for customization without modifying core:
@@ -161,6 +179,8 @@ processor.addPreProcessInterceptor("name", LogInterceptor.Priority.HIGH,
 - `CLOSED` - Normal operation, counting failures
 - `OPEN` - Failing fast to fallback, waiting for recovery timeout
 - `HALF_OPEN` - Testing recovery with limited calls
+
+**Note**: `tryAcquirePermission()` acquires lock for atomic state transitions.
 
 ### Kafka Error Categories
 KafkaProducer classifies errors for proper handling:

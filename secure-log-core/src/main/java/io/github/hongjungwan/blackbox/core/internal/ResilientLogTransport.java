@@ -226,6 +226,8 @@ public class ResilientLogTransport {
      * Replay a single fallback file with file locking to prevent concurrent processing.
      * Uses FileLock to ensure only one thread/process can replay a given file.
      *
+     * FIX P2 #13: Validate Zstd data before sending to Kafka.
+     *
      * @param file the fallback file to replay
      * @return true if replay succeeded or file was skipped (being processed), false on error
      */
@@ -242,6 +244,22 @@ public class ResilientLogTransport {
 
             // Read file contents while holding lock
             byte[] data = Files.readAllBytes(file);
+
+            // FIX P2 #13: Validate Zstd frame before sending
+            if (!isValidZstdFrame(data)) {
+                log.warn("Corrupted fallback file (invalid Zstd frame), deleting: {}", file);
+                // Release lock before delete
+                if (lock != null && lock.isValid()) {
+                    try {
+                        lock.release();
+                    } catch (IOException e) {
+                        log.warn("Failed to release file lock: {}", e.getMessage());
+                    }
+                    lock = null;
+                }
+                Files.delete(file);
+                return true;
+            }
 
             // Use circuit breaker for replay
             circuitBreaker.execute(() -> {
@@ -277,6 +295,24 @@ public class ResilientLogTransport {
                 }
             }
         }
+    }
+
+    /**
+     * FIX P2 #13: Validate Zstd frame by checking magic number.
+     * Zstd magic number: 0xFD2FB528 (little-endian: 0x28, 0xB5, 0x2F, 0xFD)
+     *
+     * @param data the data to validate
+     * @return true if data has valid Zstd magic number
+     */
+    private boolean isValidZstdFrame(byte[] data) {
+        if (data == null || data.length < 4) {
+            return false;
+        }
+        // Zstd magic number in little-endian: 0x28 0xB5 0x2F 0xFD
+        return (data[0] & 0xFF) == 0x28 &&
+               (data[1] & 0xFF) == 0xB5 &&
+               (data[2] & 0xFF) == 0x2F &&
+               (data[3] & 0xFF) == 0xFD;
     }
 
     /**

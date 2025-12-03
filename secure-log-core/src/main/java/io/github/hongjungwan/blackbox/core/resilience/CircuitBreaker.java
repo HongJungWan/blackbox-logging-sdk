@@ -165,15 +165,29 @@ public final class CircuitBreaker {
         return Instant.now().isAfter(openedAt.plus(currentOpenDuration));
     }
 
+    /**
+     * FIX P2 #14: Add jitter to backoff calculation to prevent thundering herd.
+     * Adds +/-20% jitter to the calculated duration.
+     */
     private Duration calculateOpenDuration() {
         int openCount = consecutiveOpenCount.get();
         if (openCount <= 1) {
-            return openDuration;
+            return applyJitter(openDuration);
         }
 
         // Exponential backoff: base * 2^(count-1), capped at max
         long backoffMs = openDuration.toMillis() * (1L << (Math.min(openCount - 1, 10)));
-        return Duration.ofMillis(Math.min(backoffMs, maxOpenDuration.toMillis()));
+        long cappedMs = Math.min(backoffMs, maxOpenDuration.toMillis());
+        return applyJitter(Duration.ofMillis(cappedMs));
+    }
+
+    /**
+     * Apply +/-20% jitter to a duration.
+     */
+    private Duration applyJitter(Duration duration) {
+        // Generate jitter factor between 0.8 and 1.2
+        double jitter = 0.8 + (java.util.concurrent.ThreadLocalRandom.current().nextDouble() * 0.4);
+        return Duration.ofMillis((long) (duration.toMillis() * jitter));
     }
 
     private void transitionToOpen() {
@@ -197,20 +211,23 @@ public final class CircuitBreaker {
         }
     }
 
+    /**
+     * FIX P0 #5: Use compareAndSet for atomic state transition verification.
+     * Previously the method returned state.get() == State.HALF_OPEN instead of the actual
+     * CAS result, which could return true even if this thread didn't perform the transition.
+     */
     private boolean transitionToHalfOpen() {
         stateLock.lock();
         try {
-            if (state.get() == State.OPEN) {
-                State previous = state.get();
-                state.set(State.HALF_OPEN);
+            if (state.compareAndSet(State.OPEN, State.HALF_OPEN)) {
                 successCount.set(0);
 
                 log.info("Circuit breaker '{}' HALF_OPEN, testing recovery", name);
 
-                notifyStateChange(previous, State.HALF_OPEN);
+                notifyStateChange(State.OPEN, State.HALF_OPEN);
                 return true;
             }
-            return state.get() == State.HALF_OPEN;
+            return false;
         } finally {
             stateLock.unlock();
         }
