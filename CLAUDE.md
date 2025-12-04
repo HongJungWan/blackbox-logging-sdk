@@ -83,7 +83,7 @@ Configured in `secure-log-core/build.gradle` using Gradle Shadow plugin.
 ```
 LogEvent → VirtualAsyncAppender → LogProcessor Pipeline:
   1. Deduplication (SemanticDeduplicator) - async summary emission via Virtual Thread executor
-  2. PII Masking (PiiMasker) - field name + value pattern auto-detection
+  2. PII Masking (PiiMasker) - message + payload 필드 모두 마스킹, value pattern auto-detection
   3. Integrity Chain (MerkleChain) - persisted on shutdown, restored on startup
   4. Encryption (EnvelopeEncryption) - DEK rotation every 1 hour
   5. Serialization (LogSerializer - Zstd) - 100MB limit, size validation after decompress
@@ -101,6 +101,9 @@ SecureLogLifecycle.stop():
 
 ### Backpressure Handling
 When buffer is full, `VirtualAsyncAppender.handleBackpressure()` saves events to fallback storage to prevent data loss.
+
+### Error Recovery Security
+`LogProcessor.process()` ensures PII-masked entry is always sent to fallback on exceptions - original unmasked data never leaks to fallback storage.
 
 ### Key Subsystems
 
@@ -127,7 +130,7 @@ When buffer is full, `VirtualAsyncAppender.handleBackpressure()` saves events to
 - **Envelope Encryption**: DEK (AES-256-GCM) + KEK (from KMS), 1-hour DEK rotation with TOCTOU-safe lock
 - **Integrity**: SHA-256 Hash Chain with canonical JSON serialization (Jackson `ORDER_MAP_ENTRIES_BY_KEYS`)
 - **Crypto-Shredding**: DEK destruction via Destroyable interface (JVM limitations documented)
-- **PII Masking**: Zero-allocation char array manipulation + auto-detection patterns
+- **PII Masking**: Zero-allocation char array manipulation + auto-detection patterns (message + payload 필드 모두 마스킹)
 - **Fallback KEK**: Atomic file creation with POSIX permissions, invalid files auto-deleted
 - **IV Validation**: Encrypted DEK minimum length (60 bytes) validation before decryption
 
@@ -138,7 +141,7 @@ SDK applies defensive null checks at critical points:
 - `PiiMasker`: null key check + ConcurrentModificationException prevention (ArrayList copy)
 - `EnvelopeEncryption`: payload/encrypted field validation, null entry/message check in encrypt()
 - `MerkleChain`: integrity field null check, ThreadLocal MessageDigest caching
-- `LogProcessor`: null deduplicator defensive check
+- `LogProcessor`: null deduplicator defensive check, **예외 시 maskedEntry fallback 보장**
 - `LogEntry`: ClassCastException handling for Map casting
 - `LogSerializer`: negative size validation first, compression level 1-22 range check
 

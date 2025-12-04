@@ -119,6 +119,9 @@ public class KmsClient implements AutoCloseable {
     /**
      * Get KEK from KMS (with caching).
      * Uses ReentrantLock instead of synchronized for Virtual Thread compatibility.
+     *
+     * @return the Key Encryption Key (KEK) from AWS KMS or fallback
+     * @throws KmsException if KMS is not configured and fallback is disabled
      */
     public SecretKey getKek() {
         // Check cache first - FIX P0 #2: Use single volatile read for atomic access
@@ -199,6 +202,9 @@ public class KmsClient implements AutoCloseable {
 
     /**
      * Encrypt a data key using AWS KMS.
+     *
+     * @param dataKey the plaintext data key bytes to encrypt
+     * @return the encrypted data key bytes, or original if KMS not configured
      */
     public byte[] encryptDataKey(byte[] dataKey) {
         if (!isAwsKmsConfigured) {
@@ -217,6 +223,9 @@ public class KmsClient implements AutoCloseable {
 
     /**
      * Decrypt a data key using AWS KMS.
+     *
+     * @param encryptedDataKey the encrypted data key bytes to decrypt
+     * @return the decrypted plaintext data key bytes, or original if KMS not configured
      */
     public byte[] decryptDataKey(byte[] encryptedDataKey) {
         if (!isAwsKmsConfigured) {

@@ -70,13 +70,18 @@ public class PiiMasker {
 
     /**
      * Mask PII fields in log entry.
+     *
+     * @param entry the log entry containing potential PII data
+     * @return a new LogEntry with PII fields masked
      */
     public LogEntry mask(LogEntry entry) {
-        if (entry.getPayload() == null || entry.getPayload().isEmpty()) {
-            return entry;
-        }
+        // Mask PII in message field
+        String maskedMessage = maskPiiInValue(entry.getMessage());
 
-        Map<String, Object> maskedPayload = maskMap(entry.getPayload());
+        // Mask PII in payload field
+        Map<String, Object> maskedPayload = (entry.getPayload() == null || entry.getPayload().isEmpty())
+                ? entry.getPayload()
+                : maskMap(entry.getPayload());
 
         return LogEntry.builder()
                 .timestamp(entry.getTimestamp())
@@ -84,7 +89,7 @@ public class PiiMasker {
                 .traceId(entry.getTraceId())
                 .spanId(entry.getSpanId())
                 .context(entry.getContext())
-                .message(entry.getMessage())
+                .message(maskedMessage)
                 .payload(maskedPayload)
                 .integrity(entry.getIntegrity())
                 .encryptedDek(entry.getEncryptedDek())
