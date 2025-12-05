@@ -208,10 +208,16 @@ public class SemanticDeduplicator implements AutoCloseable {
 
     /**
      * Shutdown the executor service gracefully.
+     * Invalidates all cache entries to trigger summary emission before shutdown.
      * Waits for pending summary emissions to complete.
      */
     @Override
     public void close() {
+        // FIX P0-2: Invalidate all cache entries before shutdown to trigger summary emissions
+        // This ensures pending deduplicated logs emit their summaries before executor shutdown
+        cache.invalidateAll();
+        cache.cleanUp();
+
         summaryExecutor.shutdown();
         try {
             if (!summaryExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
