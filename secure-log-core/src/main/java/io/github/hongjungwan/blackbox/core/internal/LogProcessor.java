@@ -149,11 +149,15 @@ public class LogProcessor {
      * Process a log entry directly to fallback storage.
      * Used during shutdown to ensure no events are lost when buffer cannot be fully drained.
      *
+     * <p>Security: Both PII masking and encryption are applied to prevent plaintext
+     * sensitive data from being stored on disk. Integrity chain is skipped as it
+     * requires sequential state management.</p>
+     *
      * @param entry the log entry to send to fallback
      */
     public void processFallback(LogEntry entry) {
         try {
-            // Apply minimal processing before fallback
+            // Apply security processing before fallback
             LogEntry processedEntry = entry;
 
             // Step 1: PII Masking (critical for compliance)
@@ -161,8 +165,12 @@ public class LogProcessor {
                 processedEntry = piiMasker.mask(entry);
             }
 
-            // Skip integrity chain and encryption for fallback (these require more complex state)
-            // The fallback data can be post-processed when replayed
+            // Step 2: Encryption (critical for data protection)
+            // Skip integrity chain only - it requires sequential state that cannot be
+            // maintained reliably during emergency fallback scenarios
+            if (config.isEncryptionEnabled()) {
+                processedEntry = encryption.encrypt(processedEntry);
+            }
 
             // Send directly to fallback
             transport.sendToFallback(processedEntry);
