@@ -7,6 +7,7 @@ import io.github.hongjungwan.blackbox.api.domain.LogEntry;
 import io.github.hongjungwan.blackbox.core.internal.LogProcessor;
 import org.jctools.queues.MpscArrayQueue;
 
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -48,6 +49,12 @@ public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEve
     private final AtomicBoolean consumerFinished = new AtomicBoolean(false);
 
     /**
+     * FIX P1-4: CountDownLatch to wait for consumer's current batch processing to complete.
+     * This prevents race condition where stop() returns while consumer is still processing a batch.
+     */
+    private final CountDownLatch consumerBatchLatch = new CountDownLatch(1);
+
+    /**
      * FIX P2 #17: Use a unique ID field instead of relying on thread name for identification.
      * Thread names can be duplicated across Virtual Threads.
      */
@@ -75,6 +82,20 @@ public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEve
     public void stop() {
         if (isRunning.compareAndSet(true, false)) {
             addInfo("VirtualAsyncAppender stopping...");
+
+            /**
+             * FIX P1-4: Wait for consumer's current batch to complete using CountDownLatch.
+             * This ensures we don't proceed while consumer is still processing events.
+             */
+            try {
+                boolean batchCompleted = consumerBatchLatch.await(10, TimeUnit.SECONDS);
+                if (!batchCompleted) {
+                    addWarn("Timeout waiting for consumer batch to complete");
+                }
+            } catch (InterruptedException e) {
+                addWarn("Interrupted while waiting for consumer batch completion");
+                Thread.currentThread().interrupt();
+            }
 
             /**
              * FIX P1 #6: Wait for consumer to signal completion instead of relying on size checks.
@@ -156,6 +177,8 @@ public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEve
             } finally {
                 // FIX P1 #6: Signal that consumer has finished processing
                 consumerFinished.set(true);
+                // FIX P1-4: Signal that consumer batch processing is complete
+                consumerBatchLatch.countDown();
             }
         });
     }

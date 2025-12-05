@@ -13,6 +13,7 @@ import java.nio.file.StandardOpenOption;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * FEAT-05: Log Transport with Circuit Breaker Fallback
@@ -30,7 +31,7 @@ public class LogTransport {
 
     // Circuit breaker state
     private final AtomicBoolean circuitOpen = new AtomicBoolean(false);
-    private volatile int consecutiveFailures = 0;
+    private final AtomicInteger consecutiveFailures = new AtomicInteger(0);
     private static final int FAILURE_THRESHOLD = 3;
 
     public LogTransport(SecureLogConfig config, LogSerializer serializer) {
@@ -110,8 +111,8 @@ public class LogTransport {
      * Handle successful send - reset circuit breaker
      */
     private void onSendSuccess() {
-        if (consecutiveFailures > 0) {
-            consecutiveFailures = 0;
+        if (consecutiveFailures.get() > 0) {
+            consecutiveFailures.set(0);
             if (circuitOpen.compareAndSet(true, false)) {
                 log.info("Circuit breaker CLOSED - Kafka recovered");
             }
@@ -122,9 +123,9 @@ public class LogTransport {
      * Handle send failure - open circuit breaker if threshold reached
      */
     private void onSendFailure() {
-        consecutiveFailures++;
+        int failures = consecutiveFailures.incrementAndGet();
 
-        if (consecutiveFailures >= FAILURE_THRESHOLD) {
+        if (failures >= FAILURE_THRESHOLD) {
             if (circuitOpen.compareAndSet(false, true)) {
                 log.warn("Circuit breaker OPEN - Switched to fallback mode after {} failures", FAILURE_THRESHOLD);
             }

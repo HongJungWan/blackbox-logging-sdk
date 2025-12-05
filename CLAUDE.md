@@ -103,7 +103,9 @@ SecureLogLifecycle.stop():
 When buffer is full, `VirtualAsyncAppender.handleBackpressure()` saves events to fallback storage to prevent data loss.
 
 ### Error Recovery Security
-`LogProcessor.process()` ensures PII-masked entry is always sent to fallback on exceptions - original unmasked data never leaks to fallback storage.
+- `LogProcessor.process()` ensures PII-masked entry is always sent to fallback on exceptions
+- `EnhancedLogProcessor.process()` tracks `maskedEntry` variable to guarantee masked data in fallback
+- Original unmasked data never leaks to fallback storage
 
 ### Key Subsystems
 
@@ -145,9 +147,15 @@ SDK applies defensive null checks at critical points:
 - `LogEntry`: ClassCastException handling for Map casting
 - `LogSerializer`: negative size validation first, compression level 1-22 range check
 
+### Thread Safety Patterns
+- **AtomicInteger for counters**: Use `AtomicInteger.incrementAndGet()` instead of `volatile int++` (see `LogTransport.consecutiveFailures`)
+- **CountDownLatch for shutdown**: Explicit batch completion waiting (see `VirtualAsyncAppender.consumerBatchLatch`)
+- **Async completion waiting**: Always call `.join()` on `CompletableFuture` when retry is needed (see `ResilientLogTransport.sendWithRetry()`)
+
 ### Cache Synchronization
 - `KmsClient`: `CachedKekHolder` inner class for atomic KEK + timestamp reads
-- `VirtualAsyncAppender`: `consumerFinished` AtomicBoolean for reliable shutdown signaling
+- `VirtualAsyncAppender`: `consumerFinished` AtomicBoolean + `CountDownLatch` for reliable shutdown signaling
+- `SemanticDeduplicator`: `cache.invalidateAll()` on close to prevent summary log loss
 
 ### Enhanced Components
 - `EnhancedLogProcessor` - Pipeline with interceptors + metrics

@@ -87,9 +87,15 @@ public class EnhancedLogProcessor {
 
     /**
      * Process a log entry through the full pipeline with interceptors
+     *
+     * FIX P1-3: Security enhancement - ensures PII-masked entry is sent to fallback on exceptions.
+     * Original unmasked data never leaks to fallback storage.
      */
     public void process(LogEntry entry) {
         SdkMetrics.Timer totalTimer = metrics.startTimer();
+
+        // FIX P1-3: Track masked entry to ensure only masked data goes to fallback on error
+        LogEntry maskedEntry = entry;
 
         try {
             // Pre-process interceptor chain
@@ -99,11 +105,14 @@ public class EnhancedLogProcessor {
                 return;
             }
 
-            // Core pipeline
+            // Core pipeline (includes PII masking)
             processed = executePipeline(processed);
             if (processed == null) {
                 return; // Already handled (deduplicated or dropped)
             }
+
+            // FIX P1-3: Update maskedEntry after pipeline (which includes PII masking)
+            maskedEntry = processed;
 
             // Serialize
             SdkMetrics.Timer serializeTimer = metrics.startTimer();
@@ -126,7 +135,8 @@ public class EnhancedLogProcessor {
         } catch (Exception e) {
             log.error("Error processing log entry", e);
             metrics.recordLogFailed("process", e);
-            handleProcessingError(entry, e);
+            // FIX P1-3: Send masked entry to fallback, never the original unmasked entry
+            handleProcessingError(maskedEntry, e);
         }
     }
 

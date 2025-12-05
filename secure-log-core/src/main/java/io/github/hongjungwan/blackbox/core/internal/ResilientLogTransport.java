@@ -147,6 +147,9 @@ public class ResilientLogTransport {
 
     /**
      * Send with retry policy
+     *
+     * FIX P1-5: KafkaProducer.send() is async, so we must call .join() to wait for completion.
+     * Without .join(), exceptions from async send would not trigger retry logic.
      */
     private void sendWithRetry(byte[] data) {
         if (kafkaProducer == null) {
@@ -154,7 +157,8 @@ public class ResilientLogTransport {
         }
 
         retryPolicy.execute(() -> {
-            kafkaProducer.send(config.getKafkaTopic(), data);
+            // FIX P1-5: Call join() to wait for async send completion and catch exceptions
+            kafkaProducer.send(config.getKafkaTopic(), data).join();
         });
     }
 
