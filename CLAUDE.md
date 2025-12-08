@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**SecureHR Logging SDK (v8.0.0-RELEASE)** is a logging SDK for HR domain applications requiring strict security and compliance. Built on Java 21 with standard concurrent utilities.
+**SecureHR Logging SDK (v8.0.0-RELEASE)** - HR 도메인용 보안 로깅 SDK. PII 자동 마스킹, AES-256-GCM 암호화, Hash Chain 무결성 검증 지원.
 
 **Artifact ID**: `secure-hr-logging-starter`
 **Requirements**: Java 21+, Spring Boot 3.5.8+
-**Architecture**: Multi-module Gradle project
+**Architecture**: Multi-module Gradle project (core / starter / test)
 
 ## Common Commands
 
@@ -246,7 +246,8 @@ secure-hr:
 ## Performance Targets
 
 - **Throughput**: 20,000 logs/sec per instance (4 vCPU)
-- **Latency**: Log call return < 5us (non-blocking)
+- **Latency**: Log call return < 5μs (non-blocking)
+- **Encryption**: Full pipeline (masking + hash + encryption) < 4ms
 
 ## Testing
 
