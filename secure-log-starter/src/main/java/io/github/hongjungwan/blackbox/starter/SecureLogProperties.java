@@ -41,16 +41,6 @@ public class SecureLogProperties {
     private SecurityProperties security = new SecurityProperties();
 
     /**
-     * Enable semantic deduplication
-     */
-    private boolean deduplicationEnabled = true;
-
-    /**
-     * Deduplication window in milliseconds
-     */
-    private long deduplicationWindowMs = 1000;
-
-    /**
      * Kafka configuration
      */
     private KafkaProperties kafka = new KafkaProperties();

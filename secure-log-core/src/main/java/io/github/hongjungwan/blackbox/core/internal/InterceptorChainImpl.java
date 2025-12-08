@@ -11,30 +11,25 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
- * Thread-safe, ordered interceptor chain for log processing.
+ * Simple interceptor chain for log processing.
  *
- * <p>Supports priority-based ordering and runtime registration.</p>
- *
- * <p>Based on: OkHttp RealInterceptorChain</p>
+ * <p>Simplified implementation with priority-based ordering.</p>
  */
 @Slf4j
 public final class InterceptorChainImpl implements LogInterceptor.Chain {
 
-    private final List<PrioritizedInterceptor> interceptors;
+    private final List<NamedInterceptor> interceptors;
     private final int index;
-    private final LogEntry originalEntry;
     private final LogInterceptor.ProcessingStage stage;
     private final long startTimeNanos;
 
     private InterceptorChainImpl(
-            List<PrioritizedInterceptor> interceptors,
+            List<NamedInterceptor> interceptors,
             int index,
-            LogEntry entry,
             LogInterceptor.ProcessingStage stage,
             long startTimeNanos) {
         this.interceptors = interceptors;
         this.index = index;
-        this.originalEntry = entry;
         this.stage = stage;
         this.startTimeNanos = startTimeNanos;
     }
@@ -50,40 +45,32 @@ public final class InterceptorChainImpl implements LogInterceptor.Chain {
      * Execute the chain starting from the first interceptor.
      */
     public LogEntry execute(LogEntry entry) {
-        return new InterceptorChainImpl(interceptors, 0, entry, stage, System.nanoTime())
+        return new InterceptorChainImpl(interceptors, 0, stage, System.nanoTime())
                 .proceed(entry);
     }
 
     @Override
     public LogEntry proceed(LogEntry entry) {
         if (index >= interceptors.size()) {
-            // End of chain, return the entry as-is
             return entry;
         }
 
-        // Create next chain segment
         InterceptorChainImpl next = new InterceptorChainImpl(
                 interceptors,
                 index + 1,
-                entry,
                 stage,
                 startTimeNanos
         );
 
-        // Execute current interceptor
-        PrioritizedInterceptor current = interceptors.get(index);
+        NamedInterceptor current = interceptors.get(index);
         try {
             LogEntry result = current.interceptor.intercept(entry, next);
-
             if (result == null) {
                 log.debug("Log entry dropped by interceptor: {}", current.name);
             }
-
             return result;
-
         } catch (Exception e) {
             log.error("Interceptor '{}' threw exception, continuing chain", current.name, e);
-            // Continue chain on error (fail-safe)
             return next.proceed(entry);
         }
     }
@@ -114,16 +101,16 @@ public final class InterceptorChainImpl implements LogInterceptor.Chain {
     }
 
     /**
-     * Named and prioritized interceptor wrapper.
+     * Named interceptor wrapper with priority.
      */
-    private record PrioritizedInterceptor(
+    private record NamedInterceptor(
             String name,
             int priority,
             LogInterceptor interceptor
-    ) implements Comparable<PrioritizedInterceptor> {
+    ) implements Comparable<NamedInterceptor> {
 
         @Override
-        public int compareTo(PrioritizedInterceptor other) {
+        public int compareTo(NamedInterceptor other) {
             return Integer.compare(this.priority, other.priority);
         }
     }
@@ -132,7 +119,7 @@ public final class InterceptorChainImpl implements LogInterceptor.Chain {
      * Builder for InterceptorChainImpl.
      */
     public static class Builder {
-        private final List<PrioritizedInterceptor> interceptors = new CopyOnWriteArrayList<>();
+        private final List<NamedInterceptor> interceptors = new ArrayList<>();
         private LogInterceptor.ProcessingStage stage = LogInterceptor.ProcessingStage.PRE_PROCESS;
 
         public Builder add(String name, LogInterceptor interceptor) {
@@ -144,7 +131,7 @@ public final class InterceptorChainImpl implements LogInterceptor.Chain {
         }
 
         public Builder add(String name, int priority, LogInterceptor interceptor) {
-            interceptors.add(new PrioritizedInterceptor(name, priority, interceptor));
+            interceptors.add(new NamedInterceptor(name, priority, interceptor));
             return this;
         }
 
@@ -154,14 +141,12 @@ public final class InterceptorChainImpl implements LogInterceptor.Chain {
         }
 
         public InterceptorChainImpl build() {
-            // Sort by priority
-            List<PrioritizedInterceptor> sorted = new ArrayList<>(interceptors);
+            List<NamedInterceptor> sorted = new ArrayList<>(interceptors);
             Collections.sort(sorted);
 
             return new InterceptorChainImpl(
                     Collections.unmodifiableList(sorted),
                     0,
-                    null,
                     stage,
                     0
             );
@@ -169,18 +154,17 @@ public final class InterceptorChainImpl implements LogInterceptor.Chain {
     }
 
     /**
-     * Mutable registry for runtime interceptor management.
+     * Simple registry for runtime interceptor management.
      */
     public static class Registry {
-        private final List<PrioritizedInterceptor> interceptors = new CopyOnWriteArrayList<>();
+        private final List<NamedInterceptor> interceptors = new CopyOnWriteArrayList<>();
 
         public void register(String name, LogInterceptor interceptor) {
             register(name, LogInterceptor.Priority.NORMAL, interceptor);
         }
 
         public void register(String name, LogInterceptor.Priority priority, LogInterceptor interceptor) {
-            interceptors.add(new PrioritizedInterceptor(name, priority.value(), interceptor));
-            // Re-sort on add
+            interceptors.add(new NamedInterceptor(name, priority.value(), interceptor));
             interceptors.sort(Comparator.naturalOrder());
         }
 
@@ -192,7 +176,6 @@ public final class InterceptorChainImpl implements LogInterceptor.Chain {
             return new InterceptorChainImpl(
                     new ArrayList<>(interceptors),
                     0,
-                    null,
                     stage,
                     0
             );

@@ -11,7 +11,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.assertj.core.api.Assertions.*;
 
 /**
- * Tests for CircuitBreaker (FEAT-11: Resilience)
+ * Tests for CircuitBreaker (단순화된 버전)
  */
 @DisplayName("CircuitBreaker")
 class CircuitBreakerTest {
@@ -22,7 +22,6 @@ class CircuitBreakerTest {
     void setUp() {
         circuitBreaker = CircuitBreaker.builder("test")
                 .failureThreshold(3)
-                .successThreshold(2)
                 .openDuration(Duration.ofMillis(100))
                 .build();
     }
@@ -63,48 +62,36 @@ class CircuitBreakerTest {
         }
 
         @Test
-        @DisplayName("should transition to CLOSED after success threshold in HALF_OPEN")
-        void shouldCloseAfterSuccessesInHalfOpen() throws InterruptedException {
+        @DisplayName("should auto-reset to CLOSED after timeout")
+        void shouldAutoResetAfterTimeout() throws InterruptedException {
             // Open the circuit
             for (int i = 0; i < 3; i++) {
                 circuitBreaker.onFailure(new RuntimeException("test"));
             }
             assertThat(circuitBreaker.getState()).isEqualTo(CircuitBreaker.State.OPEN);
 
-            // Wait for open duration to pass
+            // Wait for reset timeout
             Thread.sleep(150);
 
-            // Attempt should transition to HALF_OPEN
-            boolean permitted = circuitBreaker.tryAcquirePermission();
-            assertThat(permitted).isTrue();
-            assertThat(circuitBreaker.getState()).isEqualTo(CircuitBreaker.State.HALF_OPEN);
-
-            // Record successes to close
-            circuitBreaker.onSuccess();
-            circuitBreaker.onSuccess();
-
+            // isOpen() check triggers auto-reset
+            assertThat(circuitBreaker.isOpen()).isFalse();
             assertThat(circuitBreaker.getState()).isEqualTo(CircuitBreaker.State.CLOSED);
         }
 
         @Test
-        @DisplayName("should go back to OPEN on failure in HALF_OPEN")
-        void shouldReopenOnFailureInHalfOpen() throws InterruptedException {
+        @DisplayName("should allow calls after timeout expires")
+        void shouldAllowCallsAfterTimeout() throws InterruptedException {
             // Open the circuit
             for (int i = 0; i < 3; i++) {
                 circuitBreaker.onFailure(new RuntimeException("test"));
             }
 
-            // Wait for open duration
+            // Wait for reset timeout
             Thread.sleep(150);
 
-            // Transition to HALF_OPEN
-            circuitBreaker.tryAcquirePermission();
-            assertThat(circuitBreaker.getState()).isEqualTo(CircuitBreaker.State.HALF_OPEN);
-
-            // Record failure
-            circuitBreaker.onFailure(new RuntimeException("test"));
-
-            assertThat(circuitBreaker.getState()).isEqualTo(CircuitBreaker.State.OPEN);
+            // Should allow permission
+            boolean permitted = circuitBreaker.tryAcquirePermission();
+            assertThat(permitted).isTrue();
         }
     }
 

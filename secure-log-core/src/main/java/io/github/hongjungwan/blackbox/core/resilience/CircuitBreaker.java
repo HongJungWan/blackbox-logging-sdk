@@ -2,75 +2,100 @@ package io.github.hongjungwan.blackbox.core.resilience;
 
 import lombok.extern.slf4j.Slf4j;
 
-import java.time.Duration;
-import java.time.Instant;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.ReentrantLock;
-import java.util.function.Supplier;
-
 /**
- * FEAT-11: Circuit Breaker (Resilience4j Pattern)
+ * Circuit Breaker - 간단한 연속 실패 기반 차단기
  *
- * State machine-based circuit breaker with:
- * - CLOSED: Normal operation, counting failures
- * - OPEN: Failing fast, not attempting operations
- * - HALF_OPEN: Testing if service has recovered
- *
- * Features:
- * - Configurable failure thresholds
- * - Recovery timeout with exponential backoff
- * - Metrics and state change listeners
- *
- * CRITICAL: Uses ReentrantLock instead of synchronized (Virtual Thread safe)
+ * N번 연속 실패 시 일정 시간 동안 fast-fail.
+ * 주니어 면접용으로 단순화된 구현.
  */
 @Slf4j
 public final class CircuitBreaker {
 
     private final String name;
     private final int failureThreshold;
-    private final int successThreshold;
-    private final Duration openDuration;
-    private final Duration maxOpenDuration;
+    private final long resetTimeoutMs;
 
-    private final AtomicReference<State> state = new AtomicReference<>(State.CLOSED);
-    private final AtomicInteger failureCount = new AtomicInteger(0);
-    private final AtomicInteger successCount = new AtomicInteger(0);
-    private final AtomicInteger consecutiveOpenCount = new AtomicInteger(0);
-    private volatile Instant openedAt;
+    private int consecutiveFailures = 0;
+    private long lastFailureTime = 0;
 
-    // Virtual Thread safe lock
-    private final ReentrantLock stateLock = new ReentrantLock();
-
-    // Listeners
+    // Listener for state changes
     private StateChangeListener stateChangeListener;
 
     public enum State {
-        CLOSED,
-        OPEN,
-        HALF_OPEN
+        CLOSED,  // 정상 상태
+        OPEN     // 차단 상태
     }
 
     private CircuitBreaker(Builder builder) {
         this.name = builder.name;
         this.failureThreshold = builder.failureThreshold;
-        this.successThreshold = builder.successThreshold;
-        this.openDuration = builder.openDuration;
-        this.maxOpenDuration = builder.maxOpenDuration;
+        this.resetTimeoutMs = builder.resetTimeoutMs;
         this.stateChangeListener = builder.stateChangeListener;
     }
 
     /**
-     * Execute operation with circuit breaker protection.
+     * 현재 Circuit Breaker가 열려있는지 확인.
      *
-     * @param <T> the return type of the operation
+     * @return true if open (should fail fast), false if closed (allow operation)
+     */
+    public synchronized boolean isOpen() {
+        if (consecutiveFailures >= failureThreshold) {
+            long elapsed = System.currentTimeMillis() - lastFailureTime;
+            if (elapsed < resetTimeoutMs) {
+                return true;  // 아직 차단 상태
+            }
+            // 타임아웃 경과 - 리셋
+            reset();
+        }
+        return false;
+    }
+
+    /**
+     * 호출 허용 여부 확인 (기존 API 호환).
+     *
+     * @return true if the call is permitted
+     */
+    public boolean tryAcquirePermission() {
+        return !isOpen();
+    }
+
+    /**
+     * 성공 기록 - 연속 실패 카운터 리셋.
+     */
+    public synchronized void onSuccess() {
+        if (consecutiveFailures > 0) {
+            State previousState = getState();
+            consecutiveFailures = 0;
+            notifyStateChange(previousState, State.CLOSED);
+        }
+    }
+
+    /**
+     * 실패 기록 - 연속 실패 카운터 증가.
+     *
+     * @param e the exception that caused the failure
+     */
+    public synchronized void onFailure(Exception e) {
+        State previousState = getState();
+        consecutiveFailures++;
+        lastFailureTime = System.currentTimeMillis();
+
+        if (consecutiveFailures >= failureThreshold && previousState == State.CLOSED) {
+            log.warn("Circuit breaker '{}' OPEN after {} consecutive failures", name, failureThreshold);
+            notifyStateChange(State.CLOSED, State.OPEN);
+        }
+    }
+
+    /**
+     * Circuit Breaker로 보호되는 작업 실행.
+     *
+     * @param <T> the return type
      * @param operation the operation to execute
      * @return the result of the operation
-     * @throws CircuitBreakerOpenException if the circuit breaker is open
+     * @throws CircuitBreakerOpenException if circuit is open
      */
-    public <T> T execute(Supplier<T> operation) throws CircuitBreakerOpenException {
-        // Check if we should allow the call
-        if (!tryAcquirePermission()) {
+    public <T> T execute(java.util.function.Supplier<T> operation) throws CircuitBreakerOpenException {
+        if (isOpen()) {
             throw new CircuitBreakerOpenException(name);
         }
 
@@ -78,7 +103,6 @@ public final class CircuitBreaker {
             T result = operation.get();
             onSuccess();
             return result;
-
         } catch (Exception e) {
             onFailure(e);
             throw e;
@@ -86,7 +110,7 @@ public final class CircuitBreaker {
     }
 
     /**
-     * Execute runnable with circuit breaker protection
+     * Runnable 실행 (기존 API 호환).
      */
     public void execute(Runnable operation) throws CircuitBreakerOpenException {
         execute(() -> {
@@ -96,173 +120,52 @@ public final class CircuitBreaker {
     }
 
     /**
-     * Check if a call is permitted based on current circuit breaker state.
-     *
-     * @return true if the call is permitted, false if circuit is open
+     * 강제 리셋.
      */
-    public boolean tryAcquirePermission() {
-        stateLock.lock();
-        try {
-            State currentState = state.get();
+    public synchronized void reset() {
+        State previousState = getState();
+        consecutiveFailures = 0;
+        lastFailureTime = 0;
 
-            switch (currentState) {
-                case CLOSED:
-                    return true;
-
-                case OPEN:
-                    // Check if we should transition to HALF_OPEN
-                    if (shouldAttemptReset()) {
-                        return transitionToHalfOpen();
-                    }
-                    return false;
-
-                case HALF_OPEN:
-                    // Only allow limited calls in half-open state
-                    return true;
-
-                default:
-                    return false;
-            }
-        } finally {
-            stateLock.unlock();
+        if (previousState == State.OPEN) {
+            log.info("Circuit breaker '{}' reset to CLOSED", name);
+            notifyStateChange(previousState, State.CLOSED);
         }
     }
 
     /**
-     * Record a successful operation and potentially transition state.
+     * 현재 상태 조회.
      */
-    public void onSuccess() {
-        State currentState = state.get();
+    public State getState() {
+        return isOpenInternal() ? State.OPEN : State.CLOSED;
+    }
 
-        if (currentState == State.HALF_OPEN) {
-            int successes = successCount.incrementAndGet();
-            if (successes >= successThreshold) {
-                transitionToClosed();
-            }
-        } else if (currentState == State.CLOSED) {
-            // Reset failure count on success
-            failureCount.set(0);
+    // 내부용 - synchronized 없이 상태 확인 (이미 synchronized 블록 내에서 호출)
+    private boolean isOpenInternal() {
+        if (consecutiveFailures >= failureThreshold) {
+            long elapsed = System.currentTimeMillis() - lastFailureTime;
+            return elapsed < resetTimeoutMs;
         }
+        return false;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public int getFailureCount() {
+        return consecutiveFailures;
     }
 
     /**
-     * Record a failed operation and potentially transition to OPEN state.
-     *
-     * @param e the exception that caused the failure
+     * 메트릭 스냅샷 조회.
      */
-    public void onFailure(Exception e) {
-        State currentState = state.get();
-
-        if (currentState == State.HALF_OPEN) {
-            // Any failure in half-open goes back to open
-            transitionToOpen();
-        } else if (currentState == State.CLOSED) {
-            int failures = failureCount.incrementAndGet();
-            if (failures >= failureThreshold) {
-                transitionToOpen();
-            }
-        }
-    }
-
-    private boolean shouldAttemptReset() {
-        if (openedAt == null) {
-            return false;
-        }
-
-        // Calculate current open duration with exponential backoff
-        Duration currentOpenDuration = calculateOpenDuration();
-        return Instant.now().isAfter(openedAt.plus(currentOpenDuration));
-    }
-
-    /**
-     * FIX P2 #14: Add jitter to backoff calculation to prevent thundering herd.
-     * Adds +/-20% jitter to the calculated duration.
-     */
-    private Duration calculateOpenDuration() {
-        int openCount = consecutiveOpenCount.get();
-        if (openCount <= 1) {
-            return applyJitter(openDuration);
-        }
-
-        // Exponential backoff: base * 2^(count-1), capped at max
-        long backoffMs = openDuration.toMillis() * (1L << (Math.min(openCount - 1, 10)));
-        long cappedMs = Math.min(backoffMs, maxOpenDuration.toMillis());
-        return applyJitter(Duration.ofMillis(cappedMs));
-    }
-
-    /**
-     * Apply +/-20% jitter to a duration.
-     */
-    private Duration applyJitter(Duration duration) {
-        // Generate jitter factor between 0.8 and 1.2
-        double jitter = 0.8 + (java.util.concurrent.ThreadLocalRandom.current().nextDouble() * 0.4);
-        return Duration.ofMillis((long) (duration.toMillis() * jitter));
-    }
-
-    private void transitionToOpen() {
-        stateLock.lock();
-        try {
-            State previous = state.get();
-            if (previous != State.OPEN) {
-                state.set(State.OPEN);
-                openedAt = Instant.now();
-                failureCount.set(0);
-                successCount.set(0);
-                consecutiveOpenCount.incrementAndGet();
-
-                log.warn("Circuit breaker '{}' OPEN after {} failures",
-                        name, failureThreshold);
-
-                notifyStateChange(previous, State.OPEN);
-            }
-        } finally {
-            stateLock.unlock();
-        }
-    }
-
-    /**
-     * FIX P0 #5: Use compareAndSet for atomic state transition verification.
-     * Previously the method returned state.get() == State.HALF_OPEN instead of the actual
-     * CAS result, which could return true even if this thread didn't perform the transition.
-     */
-    private boolean transitionToHalfOpen() {
-        stateLock.lock();
-        try {
-            if (state.compareAndSet(State.OPEN, State.HALF_OPEN)) {
-                successCount.set(0);
-
-                log.info("Circuit breaker '{}' HALF_OPEN, testing recovery", name);
-
-                notifyStateChange(State.OPEN, State.HALF_OPEN);
-                return true;
-            }
-            return false;
-        } finally {
-            stateLock.unlock();
-        }
-    }
-
-    private void transitionToClosed() {
-        stateLock.lock();
-        try {
-            State previous = state.get();
-            if (previous != State.CLOSED) {
-                state.set(State.CLOSED);
-                failureCount.set(0);
-                successCount.set(0);
-                consecutiveOpenCount.set(0);
-
-                log.info("Circuit breaker '{}' CLOSED, service recovered", name);
-
-                notifyStateChange(previous, State.CLOSED);
-            }
-        } finally {
-            stateLock.unlock();
-        }
+    public Metrics getMetrics() {
+        return new Metrics(name, getState(), consecutiveFailures);
     }
 
     private void notifyStateChange(State from, State to) {
-        if (stateChangeListener != null) {
+        if (stateChangeListener != null && from != to) {
             try {
                 stateChangeListener.onStateChange(name, from, to);
             } catch (Exception e) {
@@ -271,70 +174,17 @@ public final class CircuitBreaker {
         }
     }
 
-    /**
-     * Force reset to CLOSED state (for testing/admin purposes).
-     */
-    public void reset() {
-        stateLock.lock();
-        try {
-            State previous = state.get();
-            state.set(State.CLOSED);
-            failureCount.set(0);
-            successCount.set(0);
-            consecutiveOpenCount.set(0);
-            openedAt = null;
-
-            log.info("Circuit breaker '{}' manually reset to CLOSED", name);
-
-            if (previous != State.CLOSED) {
-                notifyStateChange(previous, State.CLOSED);
-            }
-        } finally {
-            stateLock.unlock();
-        }
-    }
-
-    // Getters
-    public String getName() { return name; }
-    public State getState() { return state.get(); }
-    public int getFailureCount() { return failureCount.get(); }
-
-    /**
-     * Get a snapshot of current circuit breaker metrics.
-     *
-     * @return the current metrics including state, failure count, and timing info
-     */
-    public Metrics getMetrics() {
-        return new Metrics(
-                name,
-                state.get(),
-                failureCount.get(),
-                successCount.get(),
-                consecutiveOpenCount.get(),
-                openedAt
-        );
-    }
-
-    /**
-     * Create a new builder for constructing a CircuitBreaker.
-     *
-     * @param name the circuit breaker name for identification and logging
-     * @return a new Builder instance
-     */
     public static Builder builder(String name) {
         return new Builder(name);
     }
 
     /**
-     * Metrics record
+     * 메트릭 레코드 - 단순화됨
      */
     public record Metrics(
             String name,
             State state,
-            int failureCount,
-            int successCount,
-            int consecutiveOpenCount,
-            Instant openedAt
+            int failureCount
     ) {}
 
     /**
@@ -351,9 +201,7 @@ public final class CircuitBreaker {
     public static class Builder {
         private final String name;
         private int failureThreshold = 3;
-        private int successThreshold = 2;
-        private Duration openDuration = Duration.ofSeconds(30);
-        private Duration maxOpenDuration = Duration.ofMinutes(5);
+        private long resetTimeoutMs = 30_000; // 30초
         private StateChangeListener stateChangeListener;
 
         public Builder(String name) {
@@ -361,10 +209,7 @@ public final class CircuitBreaker {
         }
 
         /**
-         * Sets the number of failures before transitioning to OPEN state.
-         *
-         * @param threshold the failure threshold (default: 3)
-         * @return this builder for method chaining
+         * 실패 임계값 설정 (기본: 3회).
          */
         public Builder failureThreshold(int threshold) {
             this.failureThreshold = threshold;
@@ -372,61 +217,45 @@ public final class CircuitBreaker {
         }
 
         /**
-         * Sets the number of successes in HALF_OPEN before transitioning to CLOSED.
-         *
-         * @param threshold the success threshold (default: 2)
-         * @return this builder for method chaining
+         * 리셋 타임아웃 설정 (기본: 30초).
+         * 기존 openDuration과 호환.
+         */
+        public Builder openDuration(java.time.Duration duration) {
+            this.resetTimeoutMs = duration.toMillis();
+            return this;
+        }
+
+        /**
+         * 성공 임계값 (무시됨 - API 호환용).
          */
         public Builder successThreshold(int threshold) {
-            this.successThreshold = threshold;
+            // 단순화로 인해 무시 - HALF_OPEN 상태 없음
             return this;
         }
 
         /**
-         * Sets the initial duration to stay in OPEN state before testing recovery.
-         *
-         * @param duration the open duration (default: 30 seconds)
-         * @return this builder for method chaining
+         * 최대 열림 기간 (무시됨 - API 호환용).
          */
-        public Builder openDuration(Duration duration) {
-            this.openDuration = duration;
+        public Builder maxOpenDuration(java.time.Duration maxDuration) {
+            // 단순화로 인해 무시 - exponential backoff 없음
             return this;
         }
 
         /**
-         * Sets the maximum duration for exponential backoff in OPEN state.
-         *
-         * @param maxDuration the maximum open duration (default: 5 minutes)
-         * @return this builder for method chaining
-         */
-        public Builder maxOpenDuration(Duration maxDuration) {
-            this.maxOpenDuration = maxDuration;
-            return this;
-        }
-
-        /**
-         * Sets the listener for state change events.
-         *
-         * @param listener the state change listener
-         * @return this builder for method chaining
+         * 상태 변경 리스너 설정.
          */
         public Builder onStateChange(StateChangeListener listener) {
             this.stateChangeListener = listener;
             return this;
         }
 
-        /**
-         * Builds the CircuitBreaker instance.
-         *
-         * @return a new CircuitBreaker with the configured settings
-         */
         public CircuitBreaker build() {
             return new CircuitBreaker(this);
         }
     }
 
     /**
-     * Exception thrown when circuit is open
+     * Circuit이 열려있을 때 던지는 예외
      */
     public static class CircuitBreakerOpenException extends RuntimeException {
         private final String circuitBreakerName;

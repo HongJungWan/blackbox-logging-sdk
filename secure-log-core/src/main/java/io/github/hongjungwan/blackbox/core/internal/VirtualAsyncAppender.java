@@ -5,34 +5,31 @@ import ch.qos.logback.core.UnsynchronizedAppenderBase;
 import io.github.hongjungwan.blackbox.api.config.SecureLogConfig;
 import io.github.hongjungwan.blackbox.api.domain.LogEntry;
 import io.github.hongjungwan.blackbox.core.internal.LogProcessor;
-import org.jctools.queues.MpscArrayQueue;
 
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.locks.LockSupport;
 
 /**
- * FEAT-03: Virtual Thread Async Appender
+ * Async Appender for log event processing.
  *
- * High-performance async appender using Java 21 Virtual Threads and JCTools lock-free queue.
- *
- * CRITICAL CONSTRAINTS:
- * - NO synchronized keyword (causes carrier thread pinning)
- * - Uses ReentrantLock or lock-free structures only
- * - Non-blocking log event submission
- * - Virtual Thread consumer for I/O operations
+ * Uses standard Java concurrent utilities for simplicity:
+ * - ArrayBlockingQueue for bounded buffer
+ * - Fixed thread pool for background processing
+ * - Standard Thread.sleep() for waiting
  */
 public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEvent> {
 
-    // Virtual Thread executor (Java 21)
-    private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+    // Standard fixed thread pool for background processing
+    private final ExecutorService executor = Executors.newFixedThreadPool(2);
 
-    // Lock-free MPSC (Multi-Producer Single-Consumer) queue from JCTools
-    private final MpscArrayQueue<ILoggingEvent> buffer;
+    // Standard blocking queue from java.util.concurrent
+    private final BlockingQueue<ILoggingEvent> buffer;
 
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
     private final SecureLogConfig config;
@@ -66,7 +63,7 @@ public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEve
     public VirtualAsyncAppender(SecureLogConfig config, LogProcessor processor) {
         this.config = config;
         this.processor = processor;
-        this.buffer = new MpscArrayQueue<>(config.getBufferSize());
+        this.buffer = new ArrayBlockingQueue<>(config.getBufferSize());
     }
 
     @Override
@@ -97,13 +94,15 @@ public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEve
                 Thread.currentThread().interrupt();
             }
 
-            /**
-             * FIX P1 #6: Wait for consumer to signal completion instead of relying on size checks.
-             * MPSC queue size() is not atomic with polling operations, so we use consumerFinished flag.
-             */
+            // Wait for consumer to signal completion
             int waitCount = 0;
             while (!consumerFinished.get() && waitCount < 100) {
-                LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(100));
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
                 waitCount++;
             }
 
@@ -184,44 +183,53 @@ public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEve
     }
 
     /**
-     * Process events in batch for efficiency
-     * WARNING: Do NOT use 'synchronized' - uses lock-free polling
+     * Process events in batch for efficiency.
+     * Uses blocking poll with timeout to avoid busy-waiting.
      */
     private void processNextBatch() {
-        ILoggingEvent event;
-        int batchSize = 0;
-        final int maxBatchSize = 100;
-
-        // Drain up to maxBatchSize events
-        while (batchSize < maxBatchSize && (event = buffer.poll()) != null) {
-            try {
-                LogEntry logEntry = LogEntry.fromEvent(event);
-                processor.process(logEntry);
-                batchSize++;
-            } catch (Exception e) {
-                addError("Error processing log event", e);
+        try {
+            // Use blocking poll with timeout - simpler than busy-spin
+            ILoggingEvent event = buffer.poll(100, TimeUnit.MILLISECONDS);
+            if (event == null) {
+                return; // No events available
             }
-        }
 
-        // If no events, park briefly to avoid busy-spin
-        if (batchSize == 0) {
-            LockSupport.parkNanos(TimeUnit.MICROSECONDS.toNanos(100));
+            // Process the first event
+            LogEntry logEntry = LogEntry.fromEvent(event);
+            processor.process(logEntry);
+
+            // Drain additional events (up to batch size) without blocking
+            int batchSize = 1;
+            final int maxBatchSize = 100;
+            while (batchSize < maxBatchSize && (event = buffer.poll()) != null) {
+                try {
+                    logEntry = LogEntry.fromEvent(event);
+                    processor.process(logEntry);
+                    batchSize++;
+                } catch (Exception e) {
+                    addError("Error processing log event", e);
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (Exception e) {
+            addError("Error processing log event", e);
         }
     }
 
     /**
-     * Handle backpressure when buffer is full
+     * Handle backpressure when buffer is full.
+     * Simply saves to fallback storage to prevent data loss.
      */
     private void handleBackpressure(ILoggingEvent event) {
         long dropped = droppedEvents.incrementAndGet();
 
-        // Option 1: Drop (current implementation)
-        // Option 2: Write to fallback file synchronously
+        // Log warning periodically
         if (dropped % 1000 == 0) {
             addWarn("Buffer full. Dropped " + dropped + " events so far.");
         }
 
-        // Enable fallback processing to prevent data loss
+        // Save to fallback storage to prevent data loss
         processor.processFallback(LogEntry.fromEvent(event));
     }
 
@@ -234,6 +242,7 @@ public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEve
     }
 
     public int getQueueCapacity() {
-        return buffer.capacity();
+        // Return configured buffer size since BlockingQueue doesn't have capacity()
+        return config.getBufferSize();
     }
 }

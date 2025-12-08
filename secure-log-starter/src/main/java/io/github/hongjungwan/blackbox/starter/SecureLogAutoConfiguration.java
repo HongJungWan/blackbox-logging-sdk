@@ -2,7 +2,6 @@ package io.github.hongjungwan.blackbox.starter;
 
 import io.github.hongjungwan.blackbox.core.internal.VirtualAsyncAppender;
 import io.github.hongjungwan.blackbox.api.config.SecureLogConfig;
-import io.github.hongjungwan.blackbox.core.internal.SemanticDeduplicator;
 import io.github.hongjungwan.blackbox.core.internal.SecureLogDoctor;
 import io.github.hongjungwan.blackbox.core.internal.MerkleChain;
 import io.github.hongjungwan.blackbox.core.security.PiiMasker;
@@ -25,10 +24,9 @@ import org.springframework.context.SmartLifecycle;
 import org.springframework.context.annotation.Bean;
 
 /**
- * FEAT-06: Spring Boot AutoConfiguration
+ * Spring Boot AutoConfiguration for SecureHR Logging SDK.
  *
- * Auto-configures SecureHR Logging SDK components
- * Profile-aware: 'prod' profile enables ASYNC + Binary mode automatically
+ * <p>Auto-configures SDK components with profile-aware settings.</p>
  */
 @AutoConfiguration
 @EnableConfigurationProperties(SecureLogProperties.class)
@@ -47,8 +45,6 @@ public class SecureLogAutoConfiguration {
                 .encryptionEnabled(properties.getSecurity().isEncryptionEnabled())
                 .kmsEndpoint(properties.getSecurity().getKmsEndpoint())
                 .kmsTimeoutMs(properties.getSecurity().getKmsTimeoutMs())
-                .deduplicationEnabled(properties.isDeduplicationEnabled())
-                .deduplicationWindowMs(properties.getDeduplicationWindowMs())
                 .kafkaBootstrapServers(properties.getKafka().getBootstrapServers())
                 .kafkaTopic(properties.getKafka().getTopic())
                 .kafkaRetries(properties.getKafka().getRetries())
@@ -63,9 +59,6 @@ public class SecureLogAutoConfiguration {
         return new PiiMasker(config);
     }
 
-    /**
-     * FIX P3 #23: Add destroyMethod for proper resource cleanup.
-     */
     @Bean(destroyMethod = "close")
     @ConditionalOnMissingBean
     public KmsClient kmsClient(SecureLogConfig config) {
@@ -86,19 +79,10 @@ public class SecureLogAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public SemanticDeduplicator semanticDeduplicator(SecureLogConfig config) {
-        return new SemanticDeduplicator(config);
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
     public LogSerializer logSerializer() {
         return new LogSerializer();
     }
 
-    /**
-     * FIX P3 #23: Add destroyMethod for proper resource cleanup.
-     */
     @Bean(destroyMethod = "close")
     @ConditionalOnMissingBean
     public ResilientLogTransport logTransport(SecureLogConfig config, LogSerializer serializer) {
@@ -112,11 +96,10 @@ public class SecureLogAutoConfiguration {
             PiiMasker piiMasker,
             EnvelopeEncryption encryption,
             MerkleChain merkleChain,
-            SemanticDeduplicator deduplicator,
             LogSerializer serializer,
             ResilientLogTransport transport
     ) {
-        return new LogProcessor(config, piiMasker, encryption, merkleChain, deduplicator, serializer, transport);
+        return new LogProcessor(config, piiMasker, encryption, merkleChain, serializer, transport);
     }
 
     @Bean
@@ -131,9 +114,6 @@ public class SecureLogAutoConfiguration {
         return new SecureLogDoctor(config);
     }
 
-    /**
-     * Lifecycle manager for SDK initialization and diagnostics
-     */
     @Bean
     public SecureLogLifecycle secureLogLifecycle(
             SecureLogDoctor doctor,
@@ -145,7 +125,7 @@ public class SecureLogAutoConfiguration {
     }
 
     /**
-     * SmartLifecycle implementation for SDK initialization
+     * SmartLifecycle implementation for SDK initialization.
      */
     static class SecureLogLifecycle implements SmartLifecycle {
 
@@ -168,14 +148,12 @@ public class SecureLogAutoConfiguration {
         public void start() {
             log.info("Starting SecureHR Logging SDK v8.0.0...");
 
-            // Run diagnostics
             SecureLogDoctor.DiagnosticReport report = doctor.diagnose();
 
             if (report.hasFailures()) {
                 log.warn("Diagnostic failures detected - Consider switching to FALLBACK mode");
             }
 
-            // Restore MerkleChain state if integrity is enabled
             if (config.isIntegrityEnabled()) {
                 Path chainStatePath = getMerkleChainStatePath();
                 boolean loaded = merkleChain.tryLoadState(chainStatePath);
@@ -185,13 +163,11 @@ public class SecureLogAutoConfiguration {
                     log.info("MerkleChain starting with genesis state (no previous state found)");
                 }
 
-                // Log distributed deployment warning
                 log.warn("IMPORTANT: MerkleChain provides per-instance integrity only. " +
                         "In distributed deployments, each instance maintains its own chain. " +
                         "Consider using a centralized integrity service for cross-instance verification.");
             }
 
-            // Start appender with error handling
             try {
                 appender.start();
                 log.info("VirtualAsyncAppender started successfully");
@@ -208,14 +184,11 @@ public class SecureLogAutoConfiguration {
         public void stop() {
             log.info("Stopping SecureHR Logging SDK...");
 
-            // Stop appender gracefully
             appender.stop();
 
-            // Persist MerkleChain state if integrity is enabled
             if (config.isIntegrityEnabled()) {
                 Path chainStatePath = getMerkleChainStatePath();
                 try {
-                    // Ensure parent directory exists
                     Path parentDir = chainStatePath.getParent();
                     if (parentDir != null && !Files.exists(parentDir)) {
                         Files.createDirectories(parentDir);
@@ -232,10 +205,6 @@ public class SecureLogAutoConfiguration {
             log.info("SecureHR Logging SDK stopped");
         }
 
-        /**
-         * Get the path for MerkleChain state file.
-         * Uses fallback directory if configured, otherwise user home.
-         */
         private Path getMerkleChainStatePath() {
             String fallbackDir = config.getFallbackDirectory();
             if (fallbackDir != null && !fallbackDir.isBlank()) {
@@ -251,7 +220,6 @@ public class SecureLogAutoConfiguration {
 
         @Override
         public int getPhase() {
-            // Start early in the lifecycle
             return Integer.MIN_VALUE + 100;
         }
     }

@@ -100,18 +100,6 @@ public class SecureLogConfig {
     private final boolean kmsFallbackEnabled = true;
 
     /**
-     * Enable semantic deduplication
-     */
-    @Builder.Default
-    private final boolean deduplicationEnabled = true;
-
-    /**
-     * Deduplication window in milliseconds
-     */
-    @Builder.Default
-    private final long deduplicationWindowMs = 1000;
-
-    /**
      * Kafka bootstrap servers (for production log shipping)
      */
     private final String kafkaBootstrapServers;
@@ -217,7 +205,6 @@ public class SecureLogConfig {
                 .encryptionEnabled(true)
                 .piiMaskingEnabled(true)
                 .integrityEnabled(true)
-                .deduplicationEnabled(true)
                 .kmsFallbackEnabled(false)
                 .build();
     }
@@ -236,7 +223,6 @@ public class SecureLogConfig {
                 .encryptionEnabled(true)
                 .piiMaskingEnabled(true)
                 .integrityEnabled(true)
-                .deduplicationEnabled(true)
                 .kmsFallbackEnabled(false)
                 .build();
     }

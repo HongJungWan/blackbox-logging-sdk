@@ -3,6 +3,7 @@ package io.github.hongjungwan.blackbox.core.security;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.databind.SerializerProvider;
 import com.fasterxml.jackson.databind.ser.std.StdSerializer;
+import io.github.hongjungwan.blackbox.api.annotation.MaskType;
 import io.github.hongjungwan.blackbox.api.config.SecureLogConfig;
 import io.github.hongjungwan.blackbox.api.domain.LogEntry;
 import lombok.extern.slf4j.Slf4j;
@@ -16,21 +17,24 @@ import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
- * Zero-Allocation Contextual Masking.
+ * PII (Personally Identifiable Information) Masking.
  *
- * <p>CRITICAL CONSTRAINTS:</p>
+ * <p>Provides masking for sensitive data fields such as:</p>
  * <ul>
- *   <li>NO String.replaceAll() (causes allocation)</li>
- *   <li>NO regex object creation in hot paths</li>
- *   <li>Use char array manipulation directly</li>
- *   <li>Use JsonGenerator low-level API for zero-copy writes</li>
+ *   <li>RRN (Korean Resident Registration Number)</li>
+ *   <li>Credit Card numbers</li>
+ *   <li>Passwords</li>
+ *   <li>SSN (US Social Security Number)</li>
  * </ul>
+ *
+ * <p>Uses standard String operations and regex for clarity and maintainability.</p>
  */
 @Slf4j
 public class PiiMasker {
 
     private final SecureLogConfig config;
     private final Map<String, MaskingStrategy> strategies;
+    private final AnnotationMaskingProcessor annotationProcessor;
 
     // Pre-compiled patterns (created once)
     private static final Pattern RRN_PATTERN = Pattern.compile("\\d{6}-[1-4]\\d{6}");
@@ -40,6 +44,7 @@ public class PiiMasker {
     public PiiMasker(SecureLogConfig config) {
         this.config = config;
         this.strategies = initializeStrategies();
+        this.annotationProcessor = new AnnotationMaskingProcessor();
     }
 
     private Map<String, MaskingStrategy> initializeStrategies() {
@@ -96,6 +101,74 @@ public class PiiMasker {
                 .repeatCount(entry.getRepeatCount())
                 .throwable(entry.getThrowable())
                 .build();
+    }
+
+    /**
+     * Mask PII fields in an object using {@link io.github.hongjungwan.blackbox.api.annotation.Mask} annotations.
+     *
+     * <p>This method processes objects that have fields annotated with {@code @Mask} and returns
+     * a Map containing all field values with sensitive ones masked according to their {@link MaskType}.</p>
+     *
+     * <h2>Usage Example:</h2>
+     * <pre>{@code
+     * public class EmployeeDto {
+     *     @Mask(MaskType.RRN)
+     *     private String residentNumber;
+     *
+     *     @Mask(MaskType.PHONE)
+     *     private String phoneNumber;
+     *
+     *     private String name; // Not masked
+     * }
+     *
+     * EmployeeDto dto = new EmployeeDto("123456-1234567", "010-1234-5678", "John");
+     * Map<String, Object> masked = piiMasker.maskObject(dto);
+     * // Result: {residentNumber=123456-*******, phoneNumber=010-****-5678, name=John}
+     * }</pre>
+     *
+     * @param obj the object containing @Mask annotated fields
+     * @param <T> the type of the object
+     * @return a Map containing field names and their (potentially masked) values
+     * @throws IllegalArgumentException if obj is null
+     * @see io.github.hongjungwan.blackbox.api.annotation.Mask
+     * @see MaskType
+     */
+    public <T> Map<String, Object> maskObject(T obj) {
+        return annotationProcessor.process(obj);
+    }
+
+    /**
+     * Mask PII fields in an object and return a new instance of the same type.
+     *
+     * <p>This method attempts to create a new instance of the same class with masked values.
+     * It requires the class to have a no-arg constructor.</p>
+     *
+     * <h2>Usage Example:</h2>
+     * <pre>{@code
+     * EmployeeDto original = new EmployeeDto("123456-1234567", "010-1234-5678");
+     * EmployeeDto masked = piiMasker.maskObjectToInstance(original);
+     * }</pre>
+     *
+     * @param obj the object containing @Mask annotated fields
+     * @param <T> the type of the object
+     * @return a new instance with masked values, or null if instantiation fails
+     * @throws IllegalArgumentException if obj is null
+     */
+    public <T> T maskObjectToInstance(T obj) {
+        return annotationProcessor.processToObject(obj);
+    }
+
+    /**
+     * Apply masking to a single value based on the specified MaskType.
+     *
+     * <p>This method provides direct access to masking without requiring annotations.</p>
+     *
+     * @param value the value to mask
+     * @param type the type of masking to apply
+     * @return the masked value, or the original value if null or empty
+     */
+    public String maskValue(String value, MaskType type) {
+        return annotationProcessor.applyMask(value, type);
     }
 
     /**
@@ -185,76 +258,41 @@ public class PiiMasker {
     }
 
     /**
-     * Mask RRN patterns in a string using char array manipulation.
+     * Mask RRN patterns in a string.
+     * Example: 123456-1234567 -> 123456-*******
      */
     private String maskRrnInString(String value) {
-        java.util.regex.Matcher matcher = RRN_PATTERN.matcher(value);
-        StringBuilder result = new StringBuilder();
-        int lastEnd = 0;
-
-        while (matcher.find()) {
-            result.append(value, lastEnd, matcher.start());
-            String matched = matcher.group();
-            // Mask: keep first 6 digits and hyphen, mask rest
-            char[] chars = matched.toCharArray();
-            for (int i = 7; i < chars.length; i++) {
-                chars[i] = '*';
-            }
-            result.append(chars);
-            lastEnd = matcher.end();
-        }
-        result.append(value.substring(lastEnd));
-        return result.toString();
+        return RRN_PATTERN.matcher(value).replaceAll(matchResult -> {
+            String matched = matchResult.group();
+            // Keep first 7 characters (6 digits + hyphen), mask the rest
+            return matched.substring(0, 7) + "*******";
+        });
     }
 
     /**
-     * Mask credit card patterns in a string using char array manipulation.
+     * Mask credit card patterns in a string.
+     * Example: 1234-5678-9012-3456 -> ****-****-****-3456
      */
     private String maskCreditCardInString(String value) {
-        java.util.regex.Matcher matcher = CREDIT_CARD_PATTERN.matcher(value);
-        StringBuilder result = new StringBuilder();
-        int lastEnd = 0;
-
-        while (matcher.find()) {
-            result.append(value, lastEnd, matcher.start());
-            String matched = matcher.group();
-            // Mask all but last 4 digits
-            char[] chars = matched.toCharArray();
-            for (int i = 0; i < chars.length - 4; i++) {
-                if (Character.isDigit(chars[i])) {
-                    chars[i] = '*';
-                }
-            }
-            result.append(chars);
-            lastEnd = matcher.end();
-        }
-        result.append(value.substring(lastEnd));
-        return result.toString();
+        return CREDIT_CARD_PATTERN.matcher(value).replaceAll(matchResult -> {
+            String matched = matchResult.group();
+            // Keep last 4 digits, mask the rest
+            String lastFour = matched.substring(matched.length() - 4);
+            return "****-****-****-" + lastFour;
+        });
     }
 
     /**
-     * Mask SSN patterns in a string using char array manipulation.
+     * Mask SSN patterns in a string.
+     * Example: 123-45-6789 -> ***-**-6789
      */
     private String maskSsnInString(String value) {
-        java.util.regex.Matcher matcher = SSN_PATTERN.matcher(value);
-        StringBuilder result = new StringBuilder();
-        int lastEnd = 0;
-
-        while (matcher.find()) {
-            result.append(value, lastEnd, matcher.start());
-            String matched = matcher.group();
-            // Mask first 7 characters (XXX-XX-XXXX format)
-            char[] chars = matched.toCharArray();
-            for (int i = 0; i < 7; i++) {
-                if (Character.isDigit(chars[i])) {
-                    chars[i] = '*';
-                }
-            }
-            result.append(chars);
-            lastEnd = matcher.end();
-        }
-        result.append(value.substring(lastEnd));
-        return result.toString();
+        return SSN_PATTERN.matcher(value).replaceAll(matchResult -> {
+            String matched = matchResult.group();
+            // Keep last 4 digits, mask the rest
+            String lastFour = matched.substring(matched.length() - 4);
+            return "***-**-" + lastFour;
+        });
     }
 
     /**
@@ -266,7 +304,7 @@ public class PiiMasker {
 
     /**
      * RRN (Resident Registration Number) masking: 123456-1234567 -> 123456-*******
-     * ZERO-ALLOCATION: Uses char array manipulation.
+     * Uses standard String operations for simplicity.
      */
     static class RrnMaskingStrategy implements MaskingStrategy {
         @Override
@@ -274,21 +312,14 @@ public class PiiMasker {
             if (value == null || value.length() != 14) {
                 return "******";
             }
-
-            // Zero-allocation approach: create char array once
-            char[] chars = value.toCharArray();
-
-            // Mask the last 7 digits
-            for (int i = 7; i < 14; i++) {
-                chars[i] = '*';
-            }
-
-            return new String(chars);
+            // Keep first 7 characters (6 digits + hyphen), mask the rest
+            return value.substring(0, 7) + "*******";
         }
     }
 
     /**
      * Credit Card masking: 1234-5678-9012-3456 -> ****-****-****-3456
+     * Uses standard String operations for simplicity.
      */
     static class CreditCardMaskingStrategy implements MaskingStrategy {
         @Override
@@ -296,17 +327,15 @@ public class PiiMasker {
             if (value == null || value.length() < 4) {
                 return "****";
             }
-
-            char[] chars = value.toCharArray();
-
-            // Mask all except last 4 digits
-            for (int i = 0; i < chars.length - 4; i++) {
-                if (Character.isDigit(chars[i])) {
-                    chars[i] = '*';
-                }
+            // Keep last 4 characters, mask the rest with asterisks preserving hyphens
+            String lastFour = value.substring(value.length() - 4);
+            StringBuilder masked = new StringBuilder();
+            for (int i = 0; i < value.length() - 4; i++) {
+                char c = value.charAt(i);
+                masked.append(Character.isDigit(c) ? '*' : c);
             }
-
-            return new String(chars);
+            masked.append(lastFour);
+            return masked.toString();
         }
     }
 
@@ -324,6 +353,7 @@ public class PiiMasker {
 
     /**
      * SSN masking: 123-45-6789 -> ***-**-6789
+     * Uses standard String operations for simplicity.
      */
     static class SsnMaskingStrategy implements MaskingStrategy {
         @Override
@@ -331,29 +361,26 @@ public class PiiMasker {
             if (value == null || value.length() != 11) {
                 return "***-**-****";
             }
-
-            char[] chars = value.toCharArray();
-
-            // Mask first 7 characters (SSN format: XXX-XX-XXXX)
-            for (int i = 0; i < 7; i++) {
-                if (Character.isDigit(chars[i])) {
-                    chars[i] = '*';
-                }
+            // Keep last 4 characters, mask the rest with asterisks preserving hyphens
+            String lastFour = value.substring(value.length() - 4);
+            StringBuilder masked = new StringBuilder();
+            for (int i = 0; i < value.length() - 4; i++) {
+                char c = value.charAt(i);
+                masked.append(Character.isDigit(c) ? '*' : c);
             }
-
-            return new String(chars);
+            masked.append(lastFour);
+            return masked.toString();
         }
     }
 
     /**
-     * Custom Jackson serializer for zero-allocation masking during JSON generation.
-     * Uses JsonGenerator.writeString(char[], int, int) for direct char array writes.
+     * Custom Jackson serializer for masking during JSON generation.
      */
-    public static class ZeroAllocationMaskingSerializer extends StdSerializer<String> {
+    public static class MaskingSerializer extends StdSerializer<String> {
 
         private final MaskingStrategy strategy;
 
-        public ZeroAllocationMaskingSerializer(MaskingStrategy strategy) {
+        public MaskingSerializer(MaskingStrategy strategy) {
             super(String.class);
             this.strategy = strategy;
         }
@@ -361,10 +388,7 @@ public class PiiMasker {
         @Override
         public void serialize(String value, JsonGenerator gen, SerializerProvider provider) throws IOException {
             String masked = strategy.mask(value);
-            char[] chars = masked.toCharArray();
-
-            // Zero-allocation write: directly from char array
-            gen.writeString(chars, 0, chars.length);
+            gen.writeString(masked);
         }
     }
 }

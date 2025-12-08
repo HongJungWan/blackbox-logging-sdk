@@ -5,11 +5,9 @@
  * Implement these interfaces to customize:</p>
  *
  * <ul>
- *   <li>{@link io.github.hongjungwan.blackbox.spi.LoggerProvider} - Custom logger implementation</li>
  *   <li>{@link io.github.hongjungwan.blackbox.spi.MaskingStrategy} - Custom PII masking</li>
  *   <li>{@link io.github.hongjungwan.blackbox.spi.EncryptionProvider} - KMS integration</li>
  *   <li>{@link io.github.hongjungwan.blackbox.spi.TransportProvider} - Log destination</li>
- *   <li>{@link io.github.hongjungwan.blackbox.spi.IntegrityProvider} - Tamper detection</li>
  * </ul>
  *
  * <h2>Registration:</h2>

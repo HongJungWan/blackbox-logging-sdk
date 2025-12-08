@@ -23,17 +23,15 @@ package io.github.hongjungwan.blackbox.spi;
  *     }
  *
  *     @Override
- *     public char[] mask(char[] input, int offset, int length) {
- *         char[] result = new char[length];
- *         // Mask middle digits: 010-****-1234
- *         for (int i = 0; i < length; i++) {
- *             if (i >= 4 && i <= 7) {
- *                 result[i] = '*';
- *             } else {
- *                 result[i] = input[offset + i];
- *             }
+ *     public String mask(String value) {
+ *         if (value == null || value.length() < 8) {
+ *             return "***-****-****";
  *         }
- *         return result;
+ *         // Mask middle digits: 010-1234-5678 -> 010-****-5678
+ *         String digits = value.replaceAll("[^0-9]", "");
+ *         String lastFour = digits.substring(digits.length() - 4);
+ *         String firstSegment = digits.substring(0, 3);
+ *         return firstSegment + "-****-" + lastFour;
  *     }
  *
  *     @Override
@@ -55,17 +53,12 @@ public interface MaskingStrategy {
     String getPatternName();
 
     /**
-     * Mask the input character array.
+     * Mask the input string value.
      *
-     * <p>IMPORTANT: For zero-allocation, implementations should
-     * manipulate char arrays directly without creating String objects.</p>
-     *
-     * @param input The input character array
-     * @param offset Start offset in the array
-     * @param length Number of characters to process
-     * @return Masked character array
+     * @param value The input string to mask
+     * @return Masked string value
      */
-    char[] mask(char[] input, int offset, int length);
+    String mask(String value);
 
     /**
      * Check if this strategy should apply to the given field name.

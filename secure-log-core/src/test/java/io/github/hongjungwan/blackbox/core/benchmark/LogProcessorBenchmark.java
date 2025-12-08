@@ -1,7 +1,6 @@
 package io.github.hongjungwan.blackbox.core.benchmark;
 
 import io.github.hongjungwan.blackbox.api.config.SecureLogConfig;
-import io.github.hongjungwan.blackbox.core.internal.SemanticDeduplicator;
 import io.github.hongjungwan.blackbox.api.domain.LogEntry;
 import io.github.hongjungwan.blackbox.core.internal.MerkleChain;
 import io.github.hongjungwan.blackbox.core.security.PiiMasker;
@@ -53,7 +52,6 @@ public class LogProcessorBenchmark {
         SecureLogConfig fullConfig = SecureLogConfig.builder()
                 .piiMaskingEnabled(true)
                 .encryptionEnabled(true)
-                .deduplicationEnabled(false) // Disabled for throughput test
                 .integrityEnabled(true)
                 .kmsFallbackEnabled(true)
                 .fallbackDirectory(tempDir.toString())
@@ -66,7 +64,6 @@ public class LogProcessorBenchmark {
                 new PiiMasker(fullConfig),
                 new EnvelopeEncryption(fullConfig, new KmsClient(fullConfig)),
                 new MerkleChain(),
-                new SemanticDeduplicator(fullConfig),
                 new LogSerializer(),
                 noOpTransport
         );
@@ -75,7 +72,6 @@ public class LogProcessorBenchmark {
         SecureLogConfig minimalConfig = SecureLogConfig.builder()
                 .piiMaskingEnabled(false)
                 .encryptionEnabled(false)
-                .deduplicationEnabled(false)
                 .integrityEnabled(false)
                 .kmsFallbackEnabled(true)
                 .fallbackDirectory(tempDir.toString())
@@ -86,7 +82,6 @@ public class LogProcessorBenchmark {
                 new PiiMasker(minimalConfig),
                 new EnvelopeEncryption(minimalConfig, new KmsClient(minimalConfig)),
                 new MerkleChain(),
-                new SemanticDeduplicator(minimalConfig),
                 new LogSerializer(),
                 noOpTransport
         );
@@ -124,7 +119,6 @@ public class LogProcessorBenchmark {
     @Benchmark
     @OutputTimeUnit(TimeUnit.SECONDS)
     public void fullPipelineThroughput(Blackhole bh) {
-        // Use unique message to avoid dedup (if enabled)
         LogEntry entry = LogEntry.builder()
                 .timestamp(System.currentTimeMillis())
                 .level("INFO")

@@ -27,7 +27,6 @@ class SecureLogConfigTest {
             assertThat(config.getBufferSize()).isEqualTo(8192);
             assertThat(config.isPiiMaskingEnabled()).isTrue();
             assertThat(config.isEncryptionEnabled()).isTrue();
-            assertThat(config.isDeduplicationEnabled()).isTrue();
             assertThat(config.isIntegrityEnabled()).isTrue();
             assertThat(config.isKmsFallbackEnabled()).isTrue();
         }
@@ -148,33 +147,6 @@ class SecureLogConfigTest {
     }
 
     @Nested
-    @DisplayName("중복 제거 설정")
-    class DeduplicationConfigTests {
-
-        @Test
-        @DisplayName("기본 중복 제거 윈도우가 1초여야 한다")
-        void shouldHaveDefaultDeduplicationWindow() {
-            // when
-            SecureLogConfig config = SecureLogConfig.defaultConfig();
-
-            // then
-            assertThat(config.getDeduplicationWindowMs()).isEqualTo(1000);
-        }
-
-        @Test
-        @DisplayName("중복 제거 윈도우를 커스터마이징할 수 있어야 한다")
-        void shouldAllowDeduplicationWindowCustomization() {
-            // when
-            SecureLogConfig config = SecureLogConfig.builder()
-                    .deduplicationWindowMs(5000)
-                    .build();
-
-            // then
-            assertThat(config.getDeduplicationWindowMs()).isEqualTo(5000);
-        }
-    }
-
-    @Nested
     @DisplayName("프로덕션 설정")
     class ProductionConfigTests {
 
@@ -198,7 +170,6 @@ class SecureLogConfigTest {
             assertThat(config.isEncryptionEnabled()).isTrue();
             assertThat(config.isPiiMaskingEnabled()).isTrue();
             assertThat(config.isIntegrityEnabled()).isTrue();
-            assertThat(config.isDeduplicationEnabled()).isTrue();
             assertThat(config.isKmsFallbackEnabled()).isFalse();
         }
 
@@ -230,14 +201,12 @@ class SecureLogConfigTest {
             SecureLogConfig config = SecureLogConfig.builder()
                     .piiMaskingEnabled(false)
                     .encryptionEnabled(false)
-                    .deduplicationEnabled(false)
                     .integrityEnabled(false)
                     .build();
 
             // then
             assertThat(config.isPiiMaskingEnabled()).isFalse();
             assertThat(config.isEncryptionEnabled()).isFalse();
-            assertThat(config.isDeduplicationEnabled()).isFalse();
             assertThat(config.isIntegrityEnabled()).isFalse();
         }
 

@@ -33,7 +33,8 @@
       "Bash({} ;)",
       "Bash(chmod:*)",
       "Bash(/usr/libexec/java_home:*)",
-      "Bash(docker info:*)"
+      "Bash(docker info:*)",
+      "Bash(grep:*)"
     ],
     "deny": [],
     "ask": []
