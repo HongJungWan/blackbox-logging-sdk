@@ -17,17 +17,7 @@ import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
- * PII (Personally Identifiable Information) Masking.
- *
- * <p>Provides masking for sensitive data fields such as:</p>
- * <ul>
- *   <li>RRN (Korean Resident Registration Number)</li>
- *   <li>Credit Card numbers</li>
- *   <li>Passwords</li>
- *   <li>SSN (US Social Security Number)</li>
- * </ul>
- *
- * <p>Uses standard String operations and regex for clarity and maintainability.</p>
+ * PII 마스킹 처리기. 주민번호, 카드번호, 비밀번호, SSN 등 민감 정보 마스킹.
  */
 @Slf4j
 public class PiiMasker {
@@ -36,7 +26,7 @@ public class PiiMasker {
     private final Map<String, MaskingStrategy> strategies;
     private final AnnotationMaskingProcessor annotationProcessor;
 
-    // Pre-compiled patterns (created once)
+    // 사전 컴파일된 정규식 패턴
     private static final Pattern RRN_PATTERN = Pattern.compile("\\d{6}-[1-4]\\d{6}");
     private static final Pattern CREDIT_CARD_PATTERN = Pattern.compile("\\d{4}-\\d{4}-\\d{4}-\\d{4}");
     private static final Pattern SSN_PATTERN = Pattern.compile("\\d{3}-\\d{2}-\\d{4}");
@@ -74,16 +64,11 @@ public class PiiMasker {
     }
 
     /**
-     * Mask PII fields in log entry.
-     *
-     * @param entry the log entry containing potential PII data
-     * @return a new LogEntry with PII fields masked
+     * 로그 엔트리의 PII 필드 마스킹. message와 payload 모두 처리.
      */
     public LogEntry mask(LogEntry entry) {
-        // Mask PII in message field
         String maskedMessage = maskPiiInValue(entry.getMessage());
 
-        // Mask PII in payload field
         Map<String, Object> maskedPayload = (entry.getPayload() == null || entry.getPayload().isEmpty())
                 ? entry.getPayload()
                 : maskMap(entry.getPayload());
@@ -104,105 +89,40 @@ public class PiiMasker {
     }
 
     /**
-     * Mask PII fields in an object using {@link io.github.hongjungwan.blackbox.api.annotation.Mask} annotations.
-     *
-     * <p>This method processes objects that have fields annotated with {@code @Mask} and returns
-     * a Map containing all field values with sensitive ones masked according to their {@link MaskType}.</p>
-     *
-     * <h2>Usage Example:</h2>
-     * <pre>{@code
-     * public class EmployeeDto {
-     *     @Mask(MaskType.RRN)
-     *     private String residentNumber;
-     *
-     *     @Mask(MaskType.PHONE)
-     *     private String phoneNumber;
-     *
-     *     private String name; // Not masked
-     * }
-     *
-     * EmployeeDto dto = new EmployeeDto("123456-1234567", "010-1234-5678", "John");
-     * Map<String, Object> masked = piiMasker.maskObject(dto);
-     * // Result: {residentNumber=123456-*******, phoneNumber=010-****-5678, name=John}
-     * }</pre>
-     *
-     * @param obj the object containing @Mask annotated fields
-     * @param <T> the type of the object
-     * @return a Map containing field names and their (potentially masked) values
-     * @throws IllegalArgumentException if obj is null
-     * @see io.github.hongjungwan.blackbox.api.annotation.Mask
-     * @see MaskType
+     * @Mask 어노테이션이 적용된 객체의 필드를 마스킹하여 Map으로 반환.
      */
     public <T> Map<String, Object> maskObject(T obj) {
         return annotationProcessor.process(obj);
     }
 
     /**
-     * Mask PII fields in an object and return a new instance of the same type.
-     *
-     * <p>This method attempts to create a new instance of the same class with masked values.
-     * It requires the class to have a no-arg constructor.</p>
-     *
-     * <h2>Usage Example:</h2>
-     * <pre>{@code
-     * EmployeeDto original = new EmployeeDto("123456-1234567", "010-1234-5678");
-     * EmployeeDto masked = piiMasker.maskObjectToInstance(original);
-     * }</pre>
-     *
-     * @param obj the object containing @Mask annotated fields
-     * @param <T> the type of the object
-     * @return a new instance with masked values, or null if instantiation fails
-     * @throws IllegalArgumentException if obj is null
+     * @Mask 어노테이션이 적용된 객체를 마스킹하여 동일 타입 인스턴스로 반환. 기본 생성자 필요.
      */
     public <T> T maskObjectToInstance(T obj) {
         return annotationProcessor.processToObject(obj);
     }
 
     /**
-     * Apply masking to a single value based on the specified MaskType.
-     *
-     * <p>This method provides direct access to masking without requiring annotations.</p>
-     *
-     * @param value the value to mask
-     * @param type the type of masking to apply
-     * @return the masked value, or the original value if null or empty
+     * 단일 값에 지정된 MaskType 마스킹 적용.
      */
     public String maskValue(String value, MaskType type) {
         return annotationProcessor.applyMask(value, type);
     }
 
     /**
-     * Mask PII fields in a map recursively.
-     *
-     * <p>NOTE: Zero-Allocation Trade-off</p>
-     * <p>This method creates a new HashMap for each call, which deviates from the zero-allocation
-     * design principle. This is an intentional trade-off because:</p>
-     * <ul>
-     *   <li>Immutability: We cannot modify the original map as it may be shared or immutable</li>
-     *   <li>Safety: Creating a copy prevents concurrent modification issues</li>
-     *   <li>Complexity: Object pooling for nested Map structures adds significant complexity</li>
-     * </ul>
-     * <p>For high-throughput scenarios where this becomes a bottleneck, consider:</p>
-     * <ul>
-     *   <li>Pre-masking data at the source before logging</li>
-     *   <li>Using a custom LogEntry builder that accepts pre-masked payloads</li>
-     *   <li>Implementing a thread-local map pool (with careful size management)</li>
-     * </ul>
-     *
-     * FIX P2 #16: Copy map entries before iteration to prevent ConcurrentModificationException.
+     * Map 내 PII 필드 재귀적 마스킹.
+     * 주의: 불변성과 동시성 안전을 위해 새 Map 생성 (Zero-Allocation 예외).
      */
     private Map<String, Object> maskMap(Map<String, Object> map) {
         Map<String, Object> masked = new LinkedHashMap<>(map.size());
 
-        // FIX P2 #16: Create a copy of entries to avoid ConcurrentModificationException
-        // when the input map is modified concurrently during iteration
+        // 동시 수정 방지용 복사
         List<Map.Entry<String, Object>> entries = new ArrayList<>(map.entrySet());
 
         for (Map.Entry<String, Object> entry : entries) {
             String key = entry.getKey();
             Object value = entry.getValue();
 
-            // Check if field needs masking by name
             MaskingStrategy strategy = null;
             if (key != null) {
                 strategy = strategies.get(key.toLowerCase());
@@ -211,7 +131,6 @@ public class PiiMasker {
             if (strategy != null && value instanceof String) {
                 masked.put(key, strategy.mask((String) value));
             } else if (value instanceof String) {
-                // Auto-detect PII patterns in string values
                 masked.put(key, maskPiiInValue((String) value));
             } else if (value instanceof Map) {
                 @SuppressWarnings("unchecked")
@@ -226,11 +145,7 @@ public class PiiMasker {
     }
 
     /**
-     * Scan a string value for PII patterns and mask them.
-     * Uses pre-compiled patterns for efficiency.
-     *
-     * @param value the string value to scan
-     * @return the value with detected PII masked
+     * 문자열 내 PII 패턴 자동 감지 후 마스킹. 주민번호, 카드번호, SSN 패턴 검사.
      */
     public String maskPiiInValue(String value) {
         if (value == null || value.isEmpty()) {
@@ -239,17 +154,14 @@ public class PiiMasker {
 
         String result = value;
 
-        // Check for RRN pattern (Korean Resident Registration Number)
         if (RRN_PATTERN.matcher(result).find()) {
             result = maskRrnInString(result);
         }
 
-        // Check for credit card pattern
         if (CREDIT_CARD_PATTERN.matcher(result).find()) {
             result = maskCreditCardInString(result);
         }
 
-        // Check for SSN pattern (US Social Security Number)
         if (SSN_PATTERN.matcher(result).find()) {
             result = maskSsnInString(result);
         }
@@ -257,77 +169,55 @@ public class PiiMasker {
         return result;
     }
 
-    /**
-     * Mask RRN patterns in a string.
-     * Example: 123456-1234567 -> 123456-*******
-     */
+    /** 주민번호 마스킹: 123456-1234567 -> 123456-******* */
     private String maskRrnInString(String value) {
         return RRN_PATTERN.matcher(value).replaceAll(matchResult -> {
             String matched = matchResult.group();
-            // Keep first 7 characters (6 digits + hyphen), mask the rest
             return matched.substring(0, 7) + "*******";
         });
     }
 
-    /**
-     * Mask credit card patterns in a string.
-     * Example: 1234-5678-9012-3456 -> ****-****-****-3456
-     */
+    /** 카드번호 마스킹: 1234-5678-9012-3456 -> ****-****-****-3456 */
     private String maskCreditCardInString(String value) {
         return CREDIT_CARD_PATTERN.matcher(value).replaceAll(matchResult -> {
             String matched = matchResult.group();
-            // Keep last 4 digits, mask the rest
             String lastFour = matched.substring(matched.length() - 4);
             return "****-****-****-" + lastFour;
         });
     }
 
-    /**
-     * Mask SSN patterns in a string.
-     * Example: 123-45-6789 -> ***-**-6789
-     */
+    /** SSN 마스킹: 123-45-6789 -> ***-**-6789 */
     private String maskSsnInString(String value) {
         return SSN_PATTERN.matcher(value).replaceAll(matchResult -> {
             String matched = matchResult.group();
-            // Keep last 4 digits, mask the rest
             String lastFour = matched.substring(matched.length() - 4);
             return "***-**-" + lastFour;
         });
     }
 
-    /**
-     * Base masking strategy interface.
-     */
+    /** 마스킹 전략 인터페이스. */
     public interface MaskingStrategy {
         String mask(String value);
     }
 
-    /**
-     * RRN (Resident Registration Number) masking: 123456-1234567 -> 123456-*******
-     * Uses standard String operations for simplicity.
-     */
+    /** 주민번호 마스킹: 123456-1234567 -> 123456-******* */
     static class RrnMaskingStrategy implements MaskingStrategy {
         @Override
         public String mask(String value) {
             if (value == null || value.length() != 14) {
                 return "******";
             }
-            // Keep first 7 characters (6 digits + hyphen), mask the rest
             return value.substring(0, 7) + "*******";
         }
     }
 
-    /**
-     * Credit Card masking: 1234-5678-9012-3456 -> ****-****-****-3456
-     * Uses standard String operations for simplicity.
-     */
+    /** 카드번호 마스킹: 마지막 4자리만 표시, 하이픈 유지 */
     static class CreditCardMaskingStrategy implements MaskingStrategy {
         @Override
         public String mask(String value) {
             if (value == null || value.length() < 4) {
                 return "****";
             }
-            // Keep last 4 characters, mask the rest with asterisks preserving hyphens
             String lastFour = value.substring(value.length() - 4);
             StringBuilder masked = new StringBuilder();
             for (int i = 0; i < value.length() - 4; i++) {
@@ -339,9 +229,7 @@ public class PiiMasker {
         }
     }
 
-    /**
-     * Password masking: complete masking.
-     */
+    /** 비밀번호 마스킹: 전체 마스킹 */
     static class PasswordMaskingStrategy implements MaskingStrategy {
         private static final String MASKED = "********";
 
@@ -351,17 +239,13 @@ public class PiiMasker {
         }
     }
 
-    /**
-     * SSN masking: 123-45-6789 -> ***-**-6789
-     * Uses standard String operations for simplicity.
-     */
+    /** SSN 마스킹: 123-45-6789 -> ***-**-6789 */
     static class SsnMaskingStrategy implements MaskingStrategy {
         @Override
         public String mask(String value) {
             if (value == null || value.length() != 11) {
                 return "***-**-****";
             }
-            // Keep last 4 characters, mask the rest with asterisks preserving hyphens
             String lastFour = value.substring(value.length() - 4);
             StringBuilder masked = new StringBuilder();
             for (int i = 0; i < value.length() - 4; i++) {
@@ -373,9 +257,7 @@ public class PiiMasker {
         }
     }
 
-    /**
-     * Custom Jackson serializer for masking during JSON generation.
-     */
+    /** JSON 직렬화 시 마스킹 적용하는 Jackson Serializer. */
     public static class MaskingSerializer extends StdSerializer<String> {
 
         private final MaskingStrategy strategy;

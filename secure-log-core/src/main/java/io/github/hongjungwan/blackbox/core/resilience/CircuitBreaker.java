@@ -3,10 +3,7 @@ package io.github.hongjungwan.blackbox.core.resilience;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Circuit Breaker - 간단한 연속 실패 기반 차단기
- *
- * N번 연속 실패 시 일정 시간 동안 fast-fail.
- * 주니어 면접용으로 단순화된 구현.
+ * 연속 실패 기반 Circuit Breaker - N번 연속 실패 시 일정 시간 동안 fast-fail
  */
 @Slf4j
 public final class CircuitBreaker {
@@ -18,12 +15,12 @@ public final class CircuitBreaker {
     private int consecutiveFailures = 0;
     private long lastFailureTime = 0;
 
-    // Listener for state changes
     private StateChangeListener stateChangeListener;
 
+    /** CLOSED: 정상, OPEN: 차단 */
     public enum State {
-        CLOSED,  // 정상 상태
-        OPEN     // 차단 상태
+        CLOSED,
+        OPEN
     }
 
     private CircuitBreaker(Builder builder) {
@@ -34,33 +31,28 @@ public final class CircuitBreaker {
     }
 
     /**
-     * 현재 Circuit Breaker가 열려있는지 확인.
-     *
-     * @return true if open (should fail fast), false if closed (allow operation)
+     * Circuit이 열려있는지 확인
      */
     public synchronized boolean isOpen() {
         if (consecutiveFailures >= failureThreshold) {
             long elapsed = System.currentTimeMillis() - lastFailureTime;
             if (elapsed < resetTimeoutMs) {
-                return true;  // 아직 차단 상태
+                return true;
             }
-            // 타임아웃 경과 - 리셋
             reset();
         }
         return false;
     }
 
     /**
-     * 호출 허용 여부 확인 (기존 API 호환).
-     *
-     * @return true if the call is permitted
+     * 호출 허용 여부 확인
      */
     public boolean tryAcquirePermission() {
         return !isOpen();
     }
 
     /**
-     * 성공 기록 - 연속 실패 카운터 리셋.
+     * 성공 기록 - 연속 실패 카운터 리셋
      */
     public synchronized void onSuccess() {
         if (consecutiveFailures > 0) {
@@ -71,9 +63,7 @@ public final class CircuitBreaker {
     }
 
     /**
-     * 실패 기록 - 연속 실패 카운터 증가.
-     *
-     * @param e the exception that caused the failure
+     * 실패 기록 - 연속 실패 카운터 증가
      */
     public synchronized void onFailure(Exception e) {
         State previousState = getState();
@@ -87,12 +77,7 @@ public final class CircuitBreaker {
     }
 
     /**
-     * Circuit Breaker로 보호되는 작업 실행.
-     *
-     * @param <T> the return type
-     * @param operation the operation to execute
-     * @return the result of the operation
-     * @throws CircuitBreakerOpenException if circuit is open
+     * Circuit Breaker로 보호되는 작업 실행
      */
     public <T> T execute(java.util.function.Supplier<T> operation) throws CircuitBreakerOpenException {
         if (isOpen()) {
@@ -110,7 +95,7 @@ public final class CircuitBreaker {
     }
 
     /**
-     * Runnable 실행 (기존 API 호환).
+     * Runnable 실행
      */
     public void execute(Runnable operation) throws CircuitBreakerOpenException {
         execute(() -> {
@@ -120,7 +105,7 @@ public final class CircuitBreaker {
     }
 
     /**
-     * 강제 리셋.
+     * 강제 리셋
      */
     public synchronized void reset() {
         State previousState = getState();
@@ -134,13 +119,12 @@ public final class CircuitBreaker {
     }
 
     /**
-     * 현재 상태 조회.
+     * 현재 상태 조회
      */
     public State getState() {
         return isOpenInternal() ? State.OPEN : State.CLOSED;
     }
 
-    // 내부용 - synchronized 없이 상태 확인 (이미 synchronized 블록 내에서 호출)
     private boolean isOpenInternal() {
         if (consecutiveFailures >= failureThreshold) {
             long elapsed = System.currentTimeMillis() - lastFailureTime;
@@ -158,7 +142,7 @@ public final class CircuitBreaker {
     }
 
     /**
-     * 메트릭 스냅샷 조회.
+     * 메트릭 스냅샷 조회
      */
     public Metrics getMetrics() {
         return new Metrics(name, getState(), consecutiveFailures);
@@ -179,7 +163,7 @@ public final class CircuitBreaker {
     }
 
     /**
-     * 메트릭 레코드 - 단순화됨
+     * 메트릭 레코드
      */
     public record Metrics(
             String name,
@@ -188,20 +172,17 @@ public final class CircuitBreaker {
     ) {}
 
     /**
-     * State change listener
+     * 상태 변경 리스너
      */
     @FunctionalInterface
     public interface StateChangeListener {
         void onStateChange(String name, State from, State to);
     }
 
-    /**
-     * Builder
-     */
     public static class Builder {
         private final String name;
         private int failureThreshold = 3;
-        private long resetTimeoutMs = 30_000; // 30초
+        private long resetTimeoutMs = 30_000;
         private StateChangeListener stateChangeListener;
 
         public Builder(String name) {
@@ -209,7 +190,7 @@ public final class CircuitBreaker {
         }
 
         /**
-         * 실패 임계값 설정 (기본: 3회).
+         * 실패 임계값 설정 (기본: 3회)
          */
         public Builder failureThreshold(int threshold) {
             this.failureThreshold = threshold;
@@ -217,8 +198,7 @@ public final class CircuitBreaker {
         }
 
         /**
-         * 리셋 타임아웃 설정 (기본: 30초).
-         * 기존 openDuration과 호환.
+         * 리셋 타임아웃 설정 (기본: 30초)
          */
         public Builder openDuration(java.time.Duration duration) {
             this.resetTimeoutMs = duration.toMillis();
@@ -226,23 +206,21 @@ public final class CircuitBreaker {
         }
 
         /**
-         * 성공 임계값 (무시됨 - API 호환용).
+         * API 호환용 - 무시됨
          */
         public Builder successThreshold(int threshold) {
-            // 단순화로 인해 무시 - HALF_OPEN 상태 없음
             return this;
         }
 
         /**
-         * 최대 열림 기간 (무시됨 - API 호환용).
+         * API 호환용 - 무시됨
          */
         public Builder maxOpenDuration(java.time.Duration maxDuration) {
-            // 단순화로 인해 무시 - exponential backoff 없음
             return this;
         }
 
         /**
-         * 상태 변경 리스너 설정.
+         * 상태 변경 리스너 설정
          */
         public Builder onStateChange(StateChangeListener listener) {
             this.stateChangeListener = listener;
@@ -255,7 +233,7 @@ public final class CircuitBreaker {
     }
 
     /**
-     * Circuit이 열려있을 때 던지는 예외
+     * Circuit 열림 시 발생하는 예외
      */
     public static class CircuitBreakerOpenException extends RuntimeException {
         private final String circuitBreakerName;

@@ -16,48 +16,22 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Async Appender for log event processing.
- *
- * Uses standard Java concurrent utilities for simplicity:
- * - ArrayBlockingQueue for bounded buffer
- * - Fixed thread pool for background processing
- * - Standard Thread.sleep() for waiting
+ * 비동기 로그 Appender. ArrayBlockingQueue 버퍼 + 고정 Thread Pool 기반.
  */
 public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEvent> {
 
-    // Standard fixed thread pool for background processing
     private final ExecutorService executor = Executors.newFixedThreadPool(2);
-
-    // Standard blocking queue from java.util.concurrent
     private final BlockingQueue<ILoggingEvent> buffer;
 
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
     private final SecureLogConfig config;
     private final LogProcessor processor;
 
-    // Consumer thread reference
     private Thread consumerThread;
 
-    /**
-     * FIX P1 #6: Use a completion signal from consumer instead of size checks.
-     * MPSC queue size() is not atomic with polling, so we use this flag to signal
-     * when the consumer has finished processing all events.
-     */
     private final AtomicBoolean consumerFinished = new AtomicBoolean(false);
-
-    /**
-     * FIX P1-4: CountDownLatch to wait for consumer's current batch processing to complete.
-     * This prevents race condition where stop() returns while consumer is still processing a batch.
-     */
     private final CountDownLatch consumerBatchLatch = new CountDownLatch(1);
-
-    /**
-     * FIX P2 #17: Use a unique ID field instead of relying on thread name for identification.
-     * Thread names can be duplicated across Virtual Threads.
-     */
     private final String consumerId = "secure-log-consumer-" + System.nanoTime();
-
-    // Backpressure metrics - use AtomicLong to prevent race conditions
     private final AtomicLong droppedEvents = new AtomicLong(0);
 
     public VirtualAsyncAppender(SecureLogConfig config, LogProcessor processor) {
@@ -80,10 +54,6 @@ public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEve
         if (isRunning.compareAndSet(true, false)) {
             addInfo("VirtualAsyncAppender stopping...");
 
-            /**
-             * FIX P1-4: Wait for consumer's current batch to complete using CountDownLatch.
-             * This ensures we don't proceed while consumer is still processing events.
-             */
             try {
                 boolean batchCompleted = consumerBatchLatch.await(10, TimeUnit.SECONDS);
                 if (!batchCompleted) {
@@ -94,7 +64,6 @@ public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEve
                 Thread.currentThread().interrupt();
             }
 
-            // Wait for consumer to signal completion
             int waitCount = 0;
             while (!consumerFinished.get() && waitCount < 100) {
                 try {
@@ -106,7 +75,6 @@ public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEve
                 waitCount++;
             }
 
-            // Drain remaining events to fallback storage if buffer not fully drained
             int remaining = buffer.size();
             if (remaining > 0) {
                 addWarn("Buffer not fully drained. Saving " + remaining + " events to fallback");
@@ -122,7 +90,6 @@ public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEve
                 }
             }
 
-            // Flush processor to ensure pending deduplication summaries are emitted
             processor.flush();
 
             executor.shutdown();
@@ -146,23 +113,16 @@ public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEve
             return;
         }
 
-        // Make event immutable for async processing
         event.prepareForDeferredProcessing();
 
-        // Non-blocking offer to lock-free queue
         if (!buffer.offer(event)) {
-            // Handle backpressure - drop event or fallback
             handleBackpressure(event);
         }
     }
 
-    /**
-     * Start consumer loop on Virtual Thread
-     */
     private void startConsumerLoop() {
         executor.submit(() -> {
             consumerThread = Thread.currentThread();
-            // FIX P2 #17: Use unique consumerId for thread name
             Thread.currentThread().setName(consumerId);
 
             try {
@@ -174,31 +134,23 @@ public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEve
                     }
                 }
             } finally {
-                // FIX P1 #6: Signal that consumer has finished processing
                 consumerFinished.set(true);
-                // FIX P1-4: Signal that consumer batch processing is complete
                 consumerBatchLatch.countDown();
             }
         });
     }
 
-    /**
-     * Process events in batch for efficiency.
-     * Uses blocking poll with timeout to avoid busy-waiting.
-     */
+    /** 배치 이벤트 처리 */
     private void processNextBatch() {
         try {
-            // Use blocking poll with timeout - simpler than busy-spin
             ILoggingEvent event = buffer.poll(100, TimeUnit.MILLISECONDS);
             if (event == null) {
-                return; // No events available
+                return;
             }
 
-            // Process the first event
             LogEntry logEntry = LogEntry.fromEvent(event);
             processor.process(logEntry);
 
-            // Drain additional events (up to batch size) without blocking
             int batchSize = 1;
             final int maxBatchSize = 100;
             while (batchSize < maxBatchSize && (event = buffer.poll()) != null) {
@@ -217,19 +169,14 @@ public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEve
         }
     }
 
-    /**
-     * Handle backpressure when buffer is full.
-     * Simply saves to fallback storage to prevent data loss.
-     */
+    /** Backpressure 처리 (Fallback 저장) */
     private void handleBackpressure(ILoggingEvent event) {
         long dropped = droppedEvents.incrementAndGet();
 
-        // Log warning periodically
         if (dropped % 1000 == 0) {
             addWarn("Buffer full. Dropped " + dropped + " events so far.");
         }
 
-        // Save to fallback storage to prevent data loss
         processor.processFallback(LogEntry.fromEvent(event));
     }
 
@@ -242,7 +189,6 @@ public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEve
     }
 
     public int getQueueCapacity() {
-        // Return configured buffer size since BlockingQueue doesn't have capacity()
         return config.getBufferSize();
     }
 }

@@ -6,11 +6,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 /**
- * Factory for creating SecureLogger instances.
- *
- * <p>Provides cached logger instances with default implementation.</p>
- *
- * @since 8.0.0
+ * SecureLogger 인스턴스 팩토리. 이름별 캐시 관리.
  */
 public final class SecureLoggerFactory {
 
@@ -18,29 +14,17 @@ public final class SecureLoggerFactory {
 
     private SecureLoggerFactory() {}
 
-    /**
-     * Get or create a logger with the specified name.
-     *
-     * @param name the logger name
-     * @return a SecureLogger instance with the specified name
-     */
+    /** 이름 기반 로거 획득 또는 생성 */
     public static SecureLogger getLogger(String name) {
         return LOGGER_CACHE.computeIfAbsent(name, DefaultSecureLogger::new);
     }
 
-    /**
-     * Get or create a logger for the specified class.
-     *
-     * @param clazz the class to create a logger for
-     * @return a SecureLogger instance for the class
-     */
+    /** 클래스 기반 로거 획득 또는 생성 */
     public static SecureLogger getLogger(Class<?> clazz) {
         return getLogger(clazz.getName());
     }
 
-    /**
-     * Reset and clear the logger cache.
-     */
+    /** 로거 캐시 초기화 */
     public static void reset() {
         LOGGER_CACHE.clear();
     }

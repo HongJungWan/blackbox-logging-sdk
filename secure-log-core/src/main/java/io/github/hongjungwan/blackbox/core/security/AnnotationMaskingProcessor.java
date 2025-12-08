@@ -12,63 +12,19 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Reflection-based processor for automatic PII masking using {@link Mask} annotations.
- *
- * <p>This processor scans objects for fields and methods annotated with {@code @Mask}
- * and applies the appropriate masking strategy based on the {@link MaskType}.</p>
- *
- * <h2>Features:</h2>
- * <ul>
- *   <li>Supports field-level and method-level annotations</li>
- *   <li>Caches reflection metadata for performance</li>
- *   <li>Thread-safe processing</li>
- *   <li>Returns masked copy as Map (preserves original object)</li>
- * </ul>
- *
- * <h2>Usage:</h2>
- * <pre>{@code
- * AnnotationMaskingProcessor processor = new AnnotationMaskingProcessor();
- * Map<String, Object> maskedData = processor.process(employeeDto);
- * }</pre>
- *
- * <h2>Performance Considerations:</h2>
- * <p>Reflection metadata is cached per class to minimize reflection overhead.
- * The cache uses {@link ConcurrentHashMap} for thread-safe access.</p>
- *
- * @since 8.0.0
- * @see Mask
- * @see MaskType
+ * @Mask 어노테이션 기반 자동 PII 마스킹 처리기. 리플렉션 메타데이터 캐싱으로 성능 최적화.
  */
 @Slf4j
 public class AnnotationMaskingProcessor {
 
-    /**
-     * Cache for field metadata to avoid repeated reflection calls.
-     * Key: Class, Value: Map of field name to MaskType
-     */
+    // 필드 메타데이터 캐시 (Class -> 필드명 -> MaskType)
     private final ConcurrentHashMap<Class<?>, Map<String, MaskType>> fieldCache = new ConcurrentHashMap<>();
 
-    /**
-     * Cache for method metadata (getter methods annotated with @Mask).
-     * Key: Class, Value: Map of property name to MaskType
-     */
+    // 메서드 메타데이터 캐시 (@Mask가 적용된 getter)
     private final ConcurrentHashMap<Class<?>, Map<String, MethodMaskInfo>> methodCache = new ConcurrentHashMap<>();
 
     /**
-     * Process an object and return a Map with masked values.
-     *
-     * <p>This method:</p>
-     * <ol>
-     *   <li>Scans for @Mask annotated fields and methods</li>
-     *   <li>Reads values via reflection</li>
-     *   <li>Applies masking based on MaskType</li>
-     *   <li>Returns a new Map containing all fields with sensitive ones masked</li>
-     * </ol>
-     *
-     * @param obj the object to process (must not be null)
-     * @param <T> the type of the object
-     * @return a Map containing field names and their (potentially masked) values
-     * @throws IllegalArgumentException if obj is null
+     * 객체의 @Mask 어노테이션 필드를 마스킹하여 Map으로 반환.
      */
     public <T> Map<String, Object> process(T obj) {
         if (obj == null) {
@@ -78,13 +34,9 @@ public class AnnotationMaskingProcessor {
         Class<?> clazz = obj.getClass();
         Map<String, Object> result = new LinkedHashMap<>();
 
-        // Get or compute field mask info
         Map<String, MaskType> fieldMasks = fieldCache.computeIfAbsent(clazz, this::scanFields);
-
-        // Get or compute method mask info
         Map<String, MethodMaskInfo> methodMasks = methodCache.computeIfAbsent(clazz, this::scanMethods);
 
-        // Process all declared fields
         for (Field field : clazz.getDeclaredFields()) {
             if (Modifier.isStatic(field.getModifiers())) {
                 continue;
@@ -101,12 +53,10 @@ public class AnnotationMaskingProcessor {
             }
         }
 
-        // Process annotated getter methods (for properties not backed by fields)
         for (Map.Entry<String, MethodMaskInfo> entry : methodMasks.entrySet()) {
             String propertyName = entry.getKey();
             MethodMaskInfo info = entry.getValue();
 
-            // Skip if already processed as field
             if (result.containsKey(propertyName)) {
                 continue;
             }
@@ -123,14 +73,7 @@ public class AnnotationMaskingProcessor {
     }
 
     /**
-     * Process an object and return a new instance of the same type with masked values.
-     *
-     * <p>This method attempts to create a new instance and copy masked values.
-     * If instantiation fails, it falls back to returning a Map.</p>
-     *
-     * @param obj the object to process
-     * @param <T> the type of the object
-     * @return a new instance with masked values, or null if creation fails
+     * 객체를 마스킹하여 동일 타입의 새 인스턴스로 반환. 실패 시 null.
      */
     @SuppressWarnings("unchecked")
     public <T> T processToObject(T obj) {
@@ -141,13 +84,9 @@ public class AnnotationMaskingProcessor {
         Class<?> clazz = obj.getClass();
 
         try {
-            // Try to create new instance using no-arg constructor
             T newInstance = (T) clazz.getDeclaredConstructor().newInstance();
-
-            // Get mask info
             Map<String, MaskType> fieldMasks = fieldCache.computeIfAbsent(clazz, this::scanFields);
 
-            // Copy and mask field values
             for (Field field : clazz.getDeclaredFields()) {
                 if (Modifier.isStatic(field.getModifiers()) || Modifier.isFinal(field.getModifiers())) {
                     continue;
@@ -173,9 +112,7 @@ public class AnnotationMaskingProcessor {
         }
     }
 
-    /**
-     * Scan a class for @Mask annotated fields.
-     */
+    /** 클래스의 @Mask 어노테이션 필드 스캔. */
     private Map<String, MaskType> scanFields(Class<?> clazz) {
         Map<String, MaskType> masks = new LinkedHashMap<>();
 
@@ -189,9 +126,7 @@ public class AnnotationMaskingProcessor {
         return masks;
     }
 
-    /**
-     * Scan a class for @Mask annotated getter methods.
-     */
+    /** 클래스의 @Mask 어노테이션 getter 메서드 스캔. */
     private Map<String, MethodMaskInfo> scanMethods(Class<?> clazz) {
         Map<String, MethodMaskInfo> masks = new LinkedHashMap<>();
 
@@ -206,9 +141,7 @@ public class AnnotationMaskingProcessor {
         return masks;
     }
 
-    /**
-     * Check if a method is a getter (get* or is*).
-     */
+    /** getter 메서드 여부 확인 (get* 또는 is*). */
     private boolean isGetter(Method method) {
         String name = method.getName();
         return method.getParameterCount() == 0
@@ -216,9 +149,7 @@ public class AnnotationMaskingProcessor {
                 && (name.startsWith("get") || name.startsWith("is"));
     }
 
-    /**
-     * Extract property name from getter method name.
-     */
+    /** getter 메서드명에서 프로퍼티명 추출. */
     private String extractPropertyName(Method method) {
         String name = method.getName();
         String propertyName;
@@ -231,13 +162,10 @@ public class AnnotationMaskingProcessor {
             return name;
         }
 
-        // Convert first character to lowercase
         return Character.toLowerCase(propertyName.charAt(0)) + propertyName.substring(1);
     }
 
-    /**
-     * Get field value using reflection.
-     */
+    /** 리플렉션으로 필드 값 조회. */
     private Object getFieldValue(Object obj, Field field) {
         try {
             field.setAccessible(true);
@@ -248,9 +176,7 @@ public class AnnotationMaskingProcessor {
         }
     }
 
-    /**
-     * Invoke a method using reflection.
-     */
+    /** 리플렉션으로 메서드 호출. */
     private Object invokeMethod(Object obj, Method method) {
         try {
             method.setAccessible(true);
@@ -261,13 +187,7 @@ public class AnnotationMaskingProcessor {
         }
     }
 
-    /**
-     * Apply masking based on the MaskType.
-     *
-     * @param value the value to mask
-     * @param type the type of masking to apply
-     * @return the masked value
-     */
+    /** MaskType에 따른 마스킹 적용. */
     public String applyMask(String value, MaskType type) {
         if (value == null || value.isEmpty()) {
             return value;
@@ -286,9 +206,7 @@ public class AnnotationMaskingProcessor {
         };
     }
 
-    /**
-     * Mask RRN: 123456-1234567 -> 123456-*******
-     */
+    /** 주민번호 마스킹: 123456-1234567 -> 123456-******* */
     private String maskRrn(String value) {
         if (value.length() != 14) {
             return "******";
@@ -296,21 +214,14 @@ public class AnnotationMaskingProcessor {
         return value.substring(0, 7) + "*******";
     }
 
-    /**
-     * Mask phone number: 010-1234-5678 -> 010-****-5678
-     * Preserves first segment and last 4 digits.
-     */
+    /** 전화번호 마스킹: 010-1234-5678 -> 010-****-5678 */
     private String maskPhone(String value) {
-        // Handle various formats
         String digitsOnly = value.replaceAll("[^0-9]", "");
         if (digitsOnly.length() < 7) {
             return "***-****-****";
         }
 
-        // Find last 4 digits
         String lastFour = digitsOnly.substring(digitsOnly.length() - 4);
-
-        // Determine first segment (area code)
         String firstSegment;
         if (digitsOnly.startsWith("010") || digitsOnly.startsWith("011") || digitsOnly.startsWith("016")
                 || digitsOnly.startsWith("017") || digitsOnly.startsWith("018") || digitsOnly.startsWith("019")) {
@@ -326,9 +237,7 @@ public class AnnotationMaskingProcessor {
         return firstSegment + "-****-" + lastFour;
     }
 
-    /**
-     * Mask email: user@example.com -> u***@example.com
-     */
+    /** 이메일 마스킹: user@example.com -> u***@example.com */
     private String maskEmail(String value) {
         int atIndex = value.indexOf('@');
         if (atIndex <= 0) {
@@ -345,9 +254,7 @@ public class AnnotationMaskingProcessor {
         return localPart.charAt(0) + "***" + domain;
     }
 
-    /**
-     * Mask credit card: 1234-5678-9012-3456 -> ****-****-****-3456
-     */
+    /** 카드번호 마스킹: 1234-5678-9012-3456 -> ****-****-****-3456 */
     private String maskCreditCard(String value) {
         if (value.length() < 4) {
             return "****";
@@ -365,16 +272,12 @@ public class AnnotationMaskingProcessor {
         return masked.toString();
     }
 
-    /**
-     * Mask password: complete masking.
-     */
+    /** 비밀번호 마스킹: 전체 마스킹 */
     private String maskPassword(String value) {
         return "********";
     }
 
-    /**
-     * Mask SSN: 123-45-6789 -> ***-**-6789
-     */
+    /** SSN 마스킹: 123-45-6789 -> ***-**-6789 */
     private String maskSsn(String value) {
         if (value.length() != 11) {
             return "***-**-****";
@@ -392,10 +295,7 @@ public class AnnotationMaskingProcessor {
         return masked.toString();
     }
 
-    /**
-     * Mask name: John Doe -> J*** D**
-     * Preserves first character of each word.
-     */
+    /** 이름 마스킹: John Doe -> J*** D** (단어별 첫 글자만 표시) */
     private String maskName(String value) {
         String[] words = value.split("\\s+");
         StringBuilder result = new StringBuilder();
@@ -419,10 +319,7 @@ public class AnnotationMaskingProcessor {
         return result.toString();
     }
 
-    /**
-     * Mask address: 123 Main St -> *** **** **
-     * Masks all characters while preserving word structure.
-     */
+    /** 주소 마스킹: 단어 구조 유지하며 전체 마스킹 */
     private String maskAddress(String value) {
         StringBuilder result = new StringBuilder();
 
@@ -438,10 +335,7 @@ public class AnnotationMaskingProcessor {
         return result.toString();
     }
 
-    /**
-     * Mask account number: 1234567890 -> ******7890
-     * Preserves last 4 digits.
-     */
+    /** 계좌번호 마스킹: 마지막 4자리만 표시 */
     private String maskAccountNumber(String value) {
         if (value.length() <= 4) {
             return "****";
@@ -452,16 +346,12 @@ public class AnnotationMaskingProcessor {
         return "*".repeat(maskLength) + lastFour;
     }
 
-    /**
-     * Clear cached metadata. Useful for testing or when classes are reloaded.
-     */
+    /** 캐시 초기화. 테스트 또는 클래스 리로드 시 사용. */
     public void clearCache() {
         fieldCache.clear();
         methodCache.clear();
     }
 
-    /**
-     * Internal class to hold method and mask type information.
-     */
+    /** 메서드와 MaskType 정보를 담는 내부 레코드. */
     private record MethodMaskInfo(Method method, MaskType maskType) {}
 }

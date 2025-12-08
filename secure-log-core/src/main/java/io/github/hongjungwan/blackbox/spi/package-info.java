@@ -1,21 +1,6 @@
 /**
- * Service Provider Interfaces (SPI) for SecureHR Logging SDK.
+ * SecureHR Logging SDK 확장 포인트(SPI).
  *
- * <p>This package contains interfaces for extending SDK functionality.
- * Implement these interfaces to customize:</p>
- *
- * <ul>
- *   <li>{@link io.github.hongjungwan.blackbox.spi.MaskingStrategy} - Custom PII masking</li>
- *   <li>{@link io.github.hongjungwan.blackbox.spi.EncryptionProvider} - KMS integration</li>
- *   <li>{@link io.github.hongjungwan.blackbox.spi.TransportProvider} - Log destination</li>
- * </ul>
- *
- * <h2>Registration:</h2>
- * <p>Register implementations via ServiceLoader:</p>
- * <pre>
- * META-INF/services/io.github.hongjungwan.blackbox.spi.MaskingStrategy
- * </pre>
- *
- * @since 8.0.0
+ * <p>ServiceLoader로 등록: META-INF/services/[인터페이스 FQCN]</p>
  */
 package io.github.hongjungwan.blackbox.spi;

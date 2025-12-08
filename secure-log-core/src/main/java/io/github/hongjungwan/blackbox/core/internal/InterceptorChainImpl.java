@@ -11,9 +11,7 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
- * Simple interceptor chain for log processing.
- *
- * <p>Simplified implementation with priority-based ordering.</p>
+ * 인터셉터 체인 구현. 우선순위 기반 정렬, fail-safe 처리.
  */
 @Slf4j
 public final class InterceptorChainImpl implements LogInterceptor.Chain {
@@ -34,16 +32,10 @@ public final class InterceptorChainImpl implements LogInterceptor.Chain {
         this.startTimeNanos = startTimeNanos;
     }
 
-    /**
-     * Create a new chain builder.
-     */
     public static Builder builder() {
         return new Builder();
     }
 
-    /**
-     * Execute the chain starting from the first interceptor.
-     */
     public LogEntry execute(LogEntry entry) {
         return new InterceptorChainImpl(interceptors, 0, stage, System.nanoTime())
                 .proceed(entry);
@@ -100,9 +92,6 @@ public final class InterceptorChainImpl implements LogInterceptor.Chain {
         };
     }
 
-    /**
-     * Named interceptor wrapper with priority.
-     */
     private record NamedInterceptor(
             String name,
             int priority,
@@ -115,9 +104,6 @@ public final class InterceptorChainImpl implements LogInterceptor.Chain {
         }
     }
 
-    /**
-     * Builder for InterceptorChainImpl.
-     */
     public static class Builder {
         private final List<NamedInterceptor> interceptors = new ArrayList<>();
         private LogInterceptor.ProcessingStage stage = LogInterceptor.ProcessingStage.PRE_PROCESS;
@@ -153,9 +139,6 @@ public final class InterceptorChainImpl implements LogInterceptor.Chain {
         }
     }
 
-    /**
-     * Simple registry for runtime interceptor management.
-     */
     public static class Registry {
         private final List<NamedInterceptor> interceptors = new CopyOnWriteArrayList<>();
 

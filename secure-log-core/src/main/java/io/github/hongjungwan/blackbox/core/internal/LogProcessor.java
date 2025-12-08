@@ -7,16 +7,7 @@ import io.github.hongjungwan.blackbox.core.security.EnvelopeEncryption;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Main log processing pipeline.
- *
- * <p>Pipeline stages:</p>
- * <ol>
- *   <li>PII Masking - mask sensitive data</li>
- *   <li>Merkle Chain Integrity - add hash chain</li>
- *   <li>Envelope Encryption - encrypt payload</li>
- *   <li>Serialization - Zstd compression</li>
- *   <li>Transport - Kafka or Fallback</li>
- * </ol>
+ * 로그 처리 파이프라인. PII 마스킹 -> 무결성 체인 -> 암호화 -> 직렬화 -> 전송.
  */
 @Slf4j
 public class LogProcessor {
@@ -44,39 +35,36 @@ public class LogProcessor {
         this.transport = transport;
     }
 
-    /**
-     * Process a log entry through the full pipeline.
-     */
+    /** 로그 엔트리를 전체 파이프라인으로 처리 */
     public void process(LogEntry entry) {
         LogEntry maskedEntry = null;
         try {
-            // Step 1: PII Masking - do this early and store reference for error handling
+            // 1단계: PII 마스킹 (오류 발생 시에도 마스킹된 데이터 사용을 위해 먼저 수행)
             maskedEntry = entry;
             if (config.isPiiMaskingEnabled()) {
                 maskedEntry = piiMasker.mask(entry);
             }
 
-            // Step 2: Merkle Chain Integrity
+            // 2단계: Merkle Chain 무결성
             LogEntry chainedEntry = maskedEntry;
             if (config.isIntegrityEnabled()) {
                 chainedEntry = merkleChain.addToChain(maskedEntry);
             }
 
-            // Step 3: Envelope Encryption
+            // 3단계: Envelope 암호화
             LogEntry encryptedEntry = chainedEntry;
             if (config.isEncryptionEnabled()) {
                 encryptedEntry = encryption.encrypt(chainedEntry);
             }
 
-            // Step 4: Serialize (Zstd compression)
+            // 4단계: 직렬화 (Zstd 압축)
             byte[] serialized = serializer.serialize(encryptedEntry);
 
-            // Step 5: Transport (Kafka or Fallback)
+            // 5단계: 전송 (Kafka 또는 Fallback)
             transport.send(serialized);
 
         } catch (Exception e) {
             log.error("Error processing log entry", e);
-            // Use masked entry if available, otherwise mask now to prevent PII leak to fallback
             LogEntry safeEntry = (maskedEntry != null) ? maskedEntry : piiMasker.mask(entry);
             handleProcessingError(safeEntry, e);
         }
@@ -91,25 +79,19 @@ public class LogProcessor {
     }
 
     /**
-     * Process a log entry directly to fallback storage.
-     * Used during shutdown to ensure no events are lost when buffer cannot be fully drained.
-     *
-     * <p>Security: Both PII masking and encryption are applied to prevent plaintext
-     * sensitive data from being stored on disk. Integrity chain is skipped as it
-     * requires sequential state management.</p>
-     *
-     * @param entry the log entry to send to fallback
+     * Fallback 저장소로 직접 전송. 종료 시 버퍼 드레인 불가 시 사용.
+     * PII 마스킹 + 암호화 적용 (무결성 체인은 순차 처리 필요하여 생략).
      */
     public void processFallback(LogEntry entry) {
         try {
             LogEntry processedEntry = entry;
 
-            // Step 1: PII Masking (critical for compliance)
+            // 1단계: PII 마스킹 (컴플라이언스 필수)
             if (config.isPiiMaskingEnabled()) {
                 processedEntry = piiMasker.mask(entry);
             }
 
-            // Step 2: Encryption (critical for data protection)
+            // 2단계: 암호화 (데이터 보호 필수)
             if (config.isEncryptionEnabled()) {
                 processedEntry = encryption.encrypt(processedEntry);
             }
@@ -120,10 +102,7 @@ public class LogProcessor {
         }
     }
 
-    /**
-     * Flush pending operations.
-     */
+    /** 대기 중인 작업 플러시 (현재 no-op) */
     public void flush() {
-        // No-op after deduplicator removal
     }
 }

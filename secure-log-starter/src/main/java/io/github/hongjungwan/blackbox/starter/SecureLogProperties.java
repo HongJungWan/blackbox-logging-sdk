@@ -7,47 +7,31 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import java.util.List;
 
 /**
- * Configuration properties for SecureHR Logging SDK
- *
- * Binds to application.yml under 'secure-hr.logging'
+ * SecureHR Logging SDK 설정 Properties (prefix: secure-hr.logging).
  */
 @Data
 @ConfigurationProperties(prefix = "secure-hr.logging")
 public class SecureLogProperties {
 
-    /**
-     * Enable/disable SDK
-     */
+    /** SDK 활성화 여부 */
     private boolean enabled = true;
 
-    /**
-     * Logging mode: SYNC, ASYNC, FALLBACK
-     */
+    /** 로깅 모드: SYNC, ASYNC, FALLBACK */
     private SecureLogConfig.LoggingMode mode = SecureLogConfig.LoggingMode.ASYNC;
 
-    /**
-     * Ring buffer size for async logging
-     */
+    /** 비동기 로깅용 Ring Buffer 크기 */
     private int bufferSize = 8192;
 
-    /**
-     * PII masking configuration
-     */
+    /** PII 마스킹 설정 */
     private PiiMaskingProperties piiMasking = new PiiMaskingProperties();
 
-    /**
-     * Security configuration
-     */
+    /** 보안 설정 */
     private SecurityProperties security = new SecurityProperties();
 
-    /**
-     * Kafka configuration
-     */
+    /** Kafka 설정 */
     private KafkaProperties kafka = new KafkaProperties();
 
-    /**
-     * Fallback directory for circuit breaker
-     */
+    /** Circuit Breaker 발동 시 Fallback 저장 디렉토리 */
     private String fallbackDirectory = "logs/fallback";
 
     @Data

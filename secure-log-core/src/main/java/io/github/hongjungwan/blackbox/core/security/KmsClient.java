@@ -29,11 +29,7 @@ import java.util.Arrays;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * AWS KMS Client for Key Management.
- *
- * <p>Retrieves KEK (Key Encryption Key) from AWS KMS.</p>
- *
- * <p>CRITICAL: Uses ReentrantLock instead of synchronized (Virtual Thread compatible)</p>
+ * AWS KMS 클라이언트. KEK 조회 및 캐싱, Fallback 지원. ReentrantLock 사용 (Virtual Thread 호환).
  */
 @Slf4j
 public class KmsClient implements AutoCloseable {
@@ -43,11 +39,7 @@ public class KmsClient implements AutoCloseable {
     private final ReentrantLock lock = new ReentrantLock();
     private final boolean isAwsKmsConfigured;
 
-    /**
-     * FIX P0 #2: Use a holder class to ensure atomic reads of cached KEK and its cache time.
-     * Previously, cachedKek and kekCacheTime were read separately without atomicity,
-     * which could cause race conditions where stale KEK could be returned.
-     */
+    /** KEK와 캐시 시간을 원자적으로 관리하는 홀더 클래스. */
     private static class CachedKekHolder {
         final SecretKey kek;
         final long cacheTime;
@@ -58,11 +50,11 @@ public class KmsClient implements AutoCloseable {
         }
     }
 
-    // Cached KEK (with TTL) - single volatile reference for atomic access
+    // 캐싱된 KEK (TTL 5분)
     private volatile CachedKekHolder cachedKekHolder;
-    private static final long KEK_CACHE_TTL_MS = 300_000; // 5 minutes
+    private static final long KEK_CACHE_TTL_MS = 300_000;
 
-    // Fallback KEK persistence
+    // Fallback KEK 파일 경로
     private static final String FALLBACK_KEK_FILENAME = ".secure-hr-fallback-kek";
     private static final String FALLBACK_SEED_FILENAME = ".secure-hr-fallback-seed";
     private volatile SecretKey persistedFallbackKek;
@@ -89,7 +81,7 @@ public class KmsClient implements AutoCloseable {
                         .connectionTimeout(Duration.ofMillis(config.getKmsTimeoutMs()))
                         .socketTimeout(Duration.ofMillis(config.getKmsTimeoutMs())));
 
-        // Handle cross-account access with role assumption
+        // 크로스 계정 접근을 위한 역할 위임
         if (config.getKmsRoleArn() != null && !config.getKmsRoleArn().isBlank()) {
             builder.credentialsProvider(createAssumedRoleCredentials(config));
         }
@@ -97,6 +89,7 @@ public class KmsClient implements AutoCloseable {
         return builder.build();
     }
 
+    /** STS AssumeRole로 임시 자격 증명 생성. */
     private StaticCredentialsProvider createAssumedRoleCredentials(SecureLogConfig config) {
         try (StsClient stsClient = StsClient.builder()
                 .region(Region.of(config.getKmsRegion()))
@@ -117,23 +110,16 @@ public class KmsClient implements AutoCloseable {
     }
 
     /**
-     * Get KEK from KMS (with caching).
-     * Uses ReentrantLock instead of synchronized for Virtual Thread compatibility.
-     *
-     * @return the Key Encryption Key (KEK) from AWS KMS or fallback
-     * @throws KmsException if KMS is not configured and fallback is disabled
+     * KMS에서 KEK 조회 (캐싱 적용). 캐시 유효하면 즉시 반환.
      */
     public SecretKey getKek() {
-        // Check cache first - FIX P0 #2: Use single volatile read for atomic access
         CachedKekHolder holder = cachedKekHolder;
         if (isCacheValid(holder)) {
             return holder.kek;
         }
 
-        // Acquire lock (Virtual Thread compatible)
         lock.lock();
         try {
-            // Double-check after acquiring lock
             holder = cachedKekHolder;
             if (isCacheValid(holder)) {
                 return holder.kek;
@@ -149,7 +135,6 @@ public class KmsClient implements AutoCloseable {
                 throw new KmsException("AWS KMS not configured and fallback is disabled");
             }
 
-            // Store in holder for atomic access
             cachedKekHolder = new CachedKekHolder(kek, System.currentTimeMillis());
             return kek;
 
@@ -169,18 +154,13 @@ public class KmsClient implements AutoCloseable {
         }
     }
 
-    /**
-     * Check if cache is valid.
-     * FIX P0 #2: Takes holder as parameter to ensure atomic read of both kek and cacheTime.
-     */
+    /** 캐시 유효성 검사. */
     private boolean isCacheValid(CachedKekHolder holder) {
         return holder != null &&
                 (System.currentTimeMillis() - holder.cacheTime) < KEK_CACHE_TTL_MS;
     }
 
-    /**
-     * Fetch KEK from AWS KMS using GenerateDataKey.
-     */
+    /** AWS KMS GenerateDataKey API로 KEK 조회. */
     private SecretKey fetchKekFromAwsKms() {
         GenerateDataKeyResponse response = awsKmsClient.generateDataKey(
                 GenerateDataKeyRequest.builder()
@@ -195,17 +175,11 @@ public class KmsClient implements AutoCloseable {
             log.debug("Successfully generated data key from AWS KMS");
             return key;
         } finally {
-            // Zero out plaintext array for security
             Arrays.fill(plaintext, (byte) 0);
         }
     }
 
-    /**
-     * Encrypt a data key using AWS KMS.
-     *
-     * @param dataKey the plaintext data key bytes to encrypt
-     * @return the encrypted data key bytes, or original if KMS not configured
-     */
+    /** AWS KMS로 데이터 키 암호화. */
     public byte[] encryptDataKey(byte[] dataKey) {
         if (!isAwsKmsConfigured) {
             log.warn("Skipping KMS encryption - not configured");
@@ -221,12 +195,7 @@ public class KmsClient implements AutoCloseable {
         return response.ciphertextBlob().asByteArray();
     }
 
-    /**
-     * Decrypt a data key using AWS KMS.
-     *
-     * @param encryptedDataKey the encrypted data key bytes to decrypt
-     * @return the decrypted plaintext data key bytes, or original if KMS not configured
-     */
+    /** AWS KMS로 데이터 키 복호화. */
     public byte[] decryptDataKey(byte[] encryptedDataKey) {
         if (!isAwsKmsConfigured) {
             log.warn("Skipping KMS decryption - not configured");
@@ -243,26 +212,20 @@ public class KmsClient implements AutoCloseable {
     }
 
     /**
-     * Generate or load fallback KEK for development/testing.
-     * WARNING: NOT secure for production use.
-     *
-     * This implementation persists the fallback KEK to prevent data loss across restarts.
-     * On startup, it tries to load an existing KEK before generating a new one.
+     * Fallback KEK 생성 또는 로드. 개발/테스트용 - 프로덕션 사용 금지.
+     * 재시작 시 데이터 손실 방지를 위해 파일 영속화.
      */
     private SecretKey generateFallbackKek() {
-        // Return cached fallback KEK if available
         if (persistedFallbackKek != null) {
             return persistedFallbackKek;
         }
 
         lock.lock();
         try {
-            // Double-check after acquiring lock
             if (persistedFallbackKek != null) {
                 return persistedFallbackKek;
             }
 
-            // Try to load existing fallback KEK from file
             SecretKey loadedKek = loadFallbackKek();
             if (loadedKek != null) {
                 persistedFallbackKek = loadedKek;
@@ -270,7 +233,6 @@ public class KmsClient implements AutoCloseable {
                 return persistedFallbackKek;
             }
 
-            // Generate new fallback KEK using deterministic key derivation from seed
             SecretKey newKek = generateAndPersistFallbackKek();
             persistedFallbackKek = newKek;
             return persistedFallbackKek;
@@ -280,9 +242,7 @@ public class KmsClient implements AutoCloseable {
         }
     }
 
-    /**
-     * Load fallback KEK from persistent storage.
-     */
+    /** 파일에서 Fallback KEK 로드. */
     private SecretKey loadFallbackKek() {
         Path kekPath = getFallbackKekPath();
         if (!Files.exists(kekPath)) {
@@ -291,7 +251,7 @@ public class KmsClient implements AutoCloseable {
 
         try {
             byte[] keyBytes = Files.readAllBytes(kekPath);
-            if (keyBytes.length != 32) { // AES-256 = 32 bytes
+            if (keyBytes.length != 32) {
                 log.warn("Invalid fallback KEK file size, will regenerate");
                 try {
                     Files.delete(kekPath);
@@ -308,43 +268,33 @@ public class KmsClient implements AutoCloseable {
         }
     }
 
-    /**
-     * Generate new fallback KEK and persist it to file.
-     */
+    /** Fallback KEK 생성 후 파일에 저장. */
     private SecretKey generateAndPersistFallbackKek() {
         try {
-            // Try to use seed-based derivation for consistency
             Path seedPath = getFallbackSeedPath();
             byte[] seed;
 
             if (Files.exists(seedPath)) {
                 seed = Files.readAllBytes(seedPath);
             } else {
-                // Generate new seed
                 seed = new byte[32];
                 new SecureRandom().nextBytes(seed);
-                // FIX P2 #15: Write file with restrictive permissions
                 writeFileWithRestrictivePermissions(seedPath, seed);
-
                 log.warn("Created new fallback seed file at: {} - PROTECT THIS FILE", seedPath);
             }
 
-            // Derive key from seed using simple HKDF-like expansion
             KeyGenerator keyGen = KeyGenerator.getInstance("AES");
             SecureRandom seededRandom = createSeededSecureRandom(seed);
             keyGen.init(256, seededRandom);
             SecretKey key = keyGen.generateKey();
 
-            // Persist the KEK
             Path kekPath = getFallbackKekPath();
-            // FIX P2 #15: Write file with restrictive permissions
             writeFileWithRestrictivePermissions(kekPath, key.getEncoded());
 
             log.warn("Generated and persisted new fallback KEK to: {} - THIS IS NOT SECURE FOR PRODUCTION", kekPath);
             return key;
 
         } catch (NoSuchAlgorithmException | IOException e) {
-            // Last resort: generate ephemeral key (will cause data loss on restart)
             log.error("Failed to persist fallback KEK, using ephemeral key - DATA LOSS ON RESTART", e);
             try {
                 KeyGenerator keyGen = KeyGenerator.getInstance("AES");
@@ -356,22 +306,13 @@ public class KmsClient implements AutoCloseable {
         }
     }
 
-    /**
-     * Create a seeded SecureRandom using the strongest available algorithm.
-     * Prefers DRBG (Deterministic Random Bit Generator) which is more secure than SHA1PRNG.
-     * Falls back to SHA1PRNG if DRBG is not available.
-     *
-     * @param seed the seed bytes
-     * @return a seeded SecureRandom instance
-     */
+    /** 시드 기반 SecureRandom 생성. DRBG 우선, 불가 시 SHA1PRNG 폴백. */
     private SecureRandom createSeededSecureRandom(byte[] seed) throws NoSuchAlgorithmException {
         SecureRandom seededRandom;
         try {
-            // Try DRBG first (stronger algorithm, available in Java 9+)
             seededRandom = SecureRandom.getInstance("DRBG");
             seededRandom.setSeed(seed);
         } catch (NoSuchAlgorithmException e) {
-            // Fall back to SHA1PRNG if DRBG is not available
             log.warn("DRBG algorithm not available, falling back to SHA1PRNG");
             seededRandom = SecureRandom.getInstance("SHA1PRNG");
             seededRandom.setSeed(seed);
@@ -379,9 +320,7 @@ public class KmsClient implements AutoCloseable {
         return seededRandom;
     }
 
-    /**
-     * Get path for fallback KEK file.
-     */
+    /** Fallback KEK 파일 경로. */
     private Path getFallbackKekPath() {
         String fallbackDir = config.getFallbackDirectory();
         if (fallbackDir != null && !fallbackDir.isBlank()) {
@@ -390,9 +329,7 @@ public class KmsClient implements AutoCloseable {
         return Paths.get(System.getProperty("user.home"), FALLBACK_KEK_FILENAME);
     }
 
-    /**
-     * Get path for fallback seed file.
-     */
+    /** Fallback 시드 파일 경로. */
     private Path getFallbackSeedPath() {
         String fallbackDir = config.getFallbackDirectory();
         if (fallbackDir != null && !fallbackDir.isBlank()) {
@@ -401,31 +338,16 @@ public class KmsClient implements AutoCloseable {
         return Paths.get(System.getProperty("user.home"), FALLBACK_SEED_FILENAME);
     }
 
-    /**
-     * FIX P2 #15: Write file with restrictive permissions atomically.
-     * Writes the file and then sets permissions immediately after.
-     *
-     * @param path the file path to write to
-     * @param content the content to write
-     * @throws IOException if writing fails
-     */
+    /** 제한적 권한(chmod 600)으로 파일 쓰기. */
     private void writeFileWithRestrictivePermissions(Path path, byte[] content) throws IOException {
-        // Write file first
         Files.write(path, content,
                 StandardOpenOption.CREATE,
                 StandardOpenOption.WRITE,
                 StandardOpenOption.TRUNCATE_EXISTING);
-
-        // Set restrictive permissions immediately after creation
         setRestrictivePermissions(path);
     }
 
-    /**
-     * Set restrictive file permissions (owner-only read/write, chmod 600).
-     * This protects sensitive key material from being read by other users.
-     *
-     * @param path the file path to set permissions on
-     */
+    /** 파일 권한을 owner-only(600)로 설정. */
     private void setRestrictivePermissions(Path path) {
         try {
             java.util.Set<PosixFilePermission> permissions = EnumSet.of(
@@ -435,17 +357,13 @@ public class KmsClient implements AutoCloseable {
             Files.setPosixFilePermissions(path, permissions);
             log.debug("Set restrictive permissions (600) on: {}", path);
         } catch (java.lang.UnsupportedOperationException e) {
-            // Windows and some file systems don't support POSIX permissions
-            log.warn("Cannot set POSIX file permissions on {} - file system does not support POSIX permissions. " +
-                    "Ensure proper file security through OS-level access controls.", path);
+            log.warn("Cannot set POSIX file permissions on {} - OS does not support", path);
         } catch (IOException e) {
             log.warn("Failed to set restrictive permissions on {}: {}", path, e.getMessage());
         }
     }
 
-    /**
-     * Rotate KEK (trigger key rotation in AWS KMS).
-     */
+    /** KEK 캐시 무효화. 다음 조회 시 KMS에서 새로 가져옴. */
     public void rotateKek() {
         lock.lock();
         try {
@@ -459,9 +377,7 @@ public class KmsClient implements AutoCloseable {
         }
     }
 
-    /**
-     * Invalidate the cached KEK.
-     */
+    /** KEK 캐시 무효화. */
     public void invalidateCache() {
         lock.lock();
         try {
@@ -471,9 +387,7 @@ public class KmsClient implements AutoCloseable {
         }
     }
 
-    /**
-     * Check if AWS KMS is configured.
-     */
+    /** AWS KMS 설정 여부. */
     public boolean isAwsKmsConfigured() {
         return isAwsKmsConfigured;
     }
@@ -497,9 +411,7 @@ public class KmsClient implements AutoCloseable {
         }
     }
 
-    /**
-     * Exception thrown when KMS operation fails.
-     */
+    /** KMS 작업 실패 예외. */
     public static class KmsException extends RuntimeException {
         public KmsException(String message) {
             super(message);

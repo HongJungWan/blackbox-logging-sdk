@@ -3,112 +3,61 @@ package io.github.hongjungwan.blackbox.api.interceptor;
 import io.github.hongjungwan.blackbox.api.domain.LogEntry;
 
 /**
- * Extensible log processing interceptor.
- *
- * <p>Allows custom processing at each stage of the log pipeline.
- * Follows the Chain of Responsibility pattern (OkHttp Interceptor style).</p>
- *
- * <h2>Usage Example:</h2>
- * <pre>{@code
- * // Custom interceptor to add application metadata
- * LogInterceptor appMetadata = (entry, chain) -> {
- *     LogEntry enriched = LogEntry.builder()
- *             .timestamp(entry.getTimestamp())
- *             .level(entry.getLevel())
- *             .message(entry.getMessage())
- *             .context(Map.of(
- *                 "app.name", "hr-system",
- *                 "app.version", "1.0.0"
- *             ))
- *             .build();
- *     return chain.proceed(enriched);
- * };
- *
- * // Sampling interceptor (drop 90% of DEBUG logs)
- * LogInterceptor sampler = (entry, chain) -> {
- *     if ("DEBUG".equals(entry.getLevel()) && Math.random() > 0.1) {
- *         return null; // Drop
- *     }
- *     return chain.proceed(entry);
- * };
- * }</pre>
- *
- * @since 8.0.0
- * @see Chain
- * @see ProcessingStage
+ * 로그 파이프라인 Interceptor. Chain of Responsibility 패턴으로 단계별 커스텀 처리 지원.
  */
 @FunctionalInterface
 public interface LogInterceptor {
 
     /**
-     * Intercept and process a log entry.
-     *
-     * @param entry The log entry being processed
-     * @param chain The interceptor chain to continue processing
-     * @return The processed log entry, or null to drop the log
+     * 로그 엔트리 인터셉트. null 반환 시 로그 드롭.
      */
     LogEntry intercept(LogEntry entry, Chain chain);
 
-    /**
-     * Interceptor chain for chained processing.
-     */
+    /** Interceptor 체인 */
     interface Chain {
-        /**
-         * Continue processing with the next interceptor.
-         */
+        /** 다음 Interceptor로 진행 */
         LogEntry proceed(LogEntry entry);
 
-        /**
-         * Get the current processing stage.
-         */
+        /** 현재 처리 단계 */
         ProcessingStage stage();
 
-        /**
-         * Get interceptor chain metadata.
-         */
+        /** 체인 메타데이터 */
         ChainMetadata metadata();
     }
 
-    /**
-     * Processing stages in the log pipeline.
-     */
+    /** 파이프라인 처리 단계 */
     enum ProcessingStage {
-        /** Before any processing */
+        /** 처리 전 */
         PRE_PROCESS,
-        /** After deduplication check */
+        /** 중복 제거 후 */
         POST_DEDUP,
-        /** After PII masking */
+        /** PII 마스킹 후 */
         POST_MASK,
-        /** After integrity hash */
+        /** 무결성 해시 후 */
         POST_INTEGRITY,
-        /** After encryption */
+        /** 암호화 후 */
         POST_ENCRYPT,
-        /** Before transport */
+        /** 전송 전 */
         PRE_TRANSPORT,
-        /** After successful transport */
+        /** 전송 성공 후 */
         POST_TRANSPORT,
-        /** On transport failure */
+        /** 에러 발생 시 */
         ON_ERROR
     }
 
-    /**
-     * Chain metadata for interceptors.
-     */
+    /** 체인 메타데이터 */
     interface ChainMetadata {
-        /** Start time of chain execution in nanoseconds */
+        /** 체인 실행 시작 시간 (nanos) */
         long startTimeNanos();
 
-        /** Total number of interceptors in chain */
+        /** 체인 내 Interceptor 총 개수 */
         int interceptorCount();
 
-        /** Current interceptor index (0-based) */
+        /** 현재 Interceptor 인덱스 (0-based) */
         int currentIndex();
     }
 
-    /**
-     * Priority levels for interceptor ordering.
-     * Lower value = higher priority (executes first).
-     */
+    /** Interceptor 우선순위. 낮을수록 먼저 실행. */
     enum Priority {
         HIGHEST(0),
         HIGH(100),

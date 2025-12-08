@@ -12,20 +12,12 @@ import org.slf4j.MDC;
 import java.util.Map;
 
 /**
- * Default SecureLogger implementation using SLF4J.
- *
- * <p>Automatically integrates with LoggingContext for trace propagation.</p>
- * <p>Payload is preserved in MDC under "secure.payload" key to avoid loss during SLF4J formatting.</p>
+ * SLF4J 기반 SecureLogger 구현. LoggingContext 자동 전파, payload는 MDC에 보존.
  */
 @Slf4j
 public class DefaultSecureLogger implements SecureLogger {
 
     private static final String PAYLOAD_MDC_KEY = "secure.payload";
-
-    /**
-     * ObjectMapper for serializing payload to JSON string.
-     * Thread-safe and reusable. Matches the parsing in LogEntry.parsePayloadFromMdc().
-     */
     private static final ObjectMapper PAYLOAD_MAPPER = new ObjectMapper();
 
     private final Logger delegate;
@@ -131,21 +123,14 @@ public class DefaultSecureLogger implements SecureLogger {
         return name;
     }
 
-    /**
-     * Execute with LoggingContext propagated to MDC.
-     */
     private void withContext(Runnable action) {
         LoggingContext ctx = LoggingContext.current();
         Map<String, String> mdcValues = ctx.toMdc();
 
         try {
-            // Set MDC values
             mdcValues.forEach(MDC::put);
-
-            // Execute
             action.run();
         } finally {
-            // FIX P1 #10: Log MDC.remove() exceptions at WARN level instead of silently swallowing
             for (String key : mdcValues.keySet()) {
                 try {
                     MDC.remove(key);
@@ -156,27 +141,19 @@ public class DefaultSecureLogger implements SecureLogger {
         }
     }
 
-    /**
-     * Execute with LoggingContext and payload propagated to MDC.
-     * Payload is stored as JSON string in MDC to preserve it for downstream processing.
-     */
     private void withContextAndPayload(Map<String, Object> payload, Runnable action) {
         LoggingContext ctx = LoggingContext.current();
         Map<String, String> mdcValues = ctx.toMdc();
 
         try {
-            // Set MDC values
             mdcValues.forEach(MDC::put);
 
-            // Store payload in MDC as JSON-like string to preserve it
             if (payload != null && !payload.isEmpty()) {
                 MDC.put(PAYLOAD_MDC_KEY, convertPayloadToString(payload));
             }
 
-            // Execute
             action.run();
         } finally {
-            // FIX P1 #10: Log MDC.remove() exceptions at WARN level instead of silently swallowing
             for (String key : mdcValues.keySet()) {
                 try {
                     MDC.remove(key);
@@ -192,17 +169,10 @@ public class DefaultSecureLogger implements SecureLogger {
         }
     }
 
-    /**
-     * Convert payload map to a JSON string for MDC storage.
-     * Uses Jackson ObjectMapper for proper JSON serialization that handles
-     * nested objects, arrays, and special characters correctly.
-     * This ensures consistency with LogEntry.parsePayloadFromMdc().
-     */
     private String convertPayloadToString(Map<String, Object> payload) {
         try {
             return PAYLOAD_MAPPER.writeValueAsString(payload);
         } catch (JsonProcessingException e) {
-            // Fallback to simple toString if JSON serialization fails
             return payload.toString();
         }
     }

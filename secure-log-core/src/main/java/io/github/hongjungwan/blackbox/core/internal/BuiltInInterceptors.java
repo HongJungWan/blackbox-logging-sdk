@@ -13,30 +13,23 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Predicate;
 
 /**
- * Collection of common interceptors for typical use cases.
- *
- * <p>All interceptors are fail-safe (exceptions don't break the chain).</p>
+ * 내장 인터셉터 모음 (Sampling, LevelFilter, FieldRedaction 등). Fail-safe 설계.
  */
 @Slf4j
 public final class BuiltInInterceptors {
 
     private BuiltInInterceptors() {}
 
-    /**
-     * Context Enrichment Interceptor.
-     * Automatically adds trace context to log entries.
-     */
+    /** 컨텍스트 보강 (trace/span ID, baggage 추가) */
     public static LogInterceptor contextEnrichment() {
         return (entry, chain) -> {
             LoggingContext ctx = LoggingContext.current();
 
-            // Build enhanced context
             Map<String, Object> enrichedContext = new HashMap<>();
             if (entry.getContext() != null) {
                 enrichedContext.putAll(entry.getContext());
             }
 
-            // Add trace IDs if not present
             String traceId = entry.getTraceId();
             String spanId = entry.getSpanId();
 
@@ -47,7 +40,6 @@ public final class BuiltInInterceptors {
                 spanId = ctx.getSpanId();
             }
 
-            // Add baggage items to context
             ctx.getBaggage().forEach((k, v) -> {
                 if (!enrichedContext.containsKey(k)) {
                     enrichedContext.put(k, v);
@@ -72,30 +64,24 @@ public final class BuiltInInterceptors {
         };
     }
 
-    /**
-     * Sampling Interceptor.
-     * Drop logs based on sampling rate (for high-volume scenarios).
-     */
+    /** 샘플링 (0.0-1.0 비율) */
     public static LogInterceptor sampling(double rate) {
         if (rate <= 0) {
-            return (entry, chain) -> null; // Drop all
+            return (entry, chain) -> null;
         }
         if (rate >= 1.0) {
-            return (entry, chain) -> chain.proceed(entry); // Keep all
+            return (entry, chain) -> chain.proceed(entry);
         }
 
         return (entry, chain) -> {
             if (ThreadLocalRandom.current().nextDouble() < rate) {
                 return chain.proceed(entry);
             }
-            return null; // Sampled out
+            return null;
         };
     }
 
-    /**
-     * Level Filter Interceptor.
-     * Filter logs by level.
-     */
+    /** 레벨 필터 */
     public static LogInterceptor levelFilter(Set<String> allowedLevels) {
         return (entry, chain) -> {
             if (allowedLevels.contains(entry.getLevel())) {
@@ -105,10 +91,7 @@ public final class BuiltInInterceptors {
         };
     }
 
-    /**
-     * Field Redaction Interceptor.
-     * Remove sensitive fields before logging (beyond masking).
-     */
+    /** 필드 삭제 ([REDACTED] 치환) */
     public static LogInterceptor fieldRedaction(Set<String> fieldsToRedact) {
         return (entry, chain) -> {
             if (entry.getPayload() == null) {
@@ -136,10 +119,7 @@ public final class BuiltInInterceptors {
         };
     }
 
-    /**
-     * Conditional Interceptor.
-     * Apply interceptor only when condition is met.
-     */
+    /** 조건부 인터셉터 */
     public static LogInterceptor conditional(
             Predicate<LogEntry> condition,
             LogInterceptor interceptor) {
@@ -151,10 +131,7 @@ public final class BuiltInInterceptors {
         };
     }
 
-    /**
-     * Metrics Interceptor.
-     * Collect processing metrics.
-     */
+    /** 메트릭 수집 */
     public static LogInterceptor metrics(MetricsCollector collector) {
         return (entry, chain) -> {
             long startTime = System.nanoTime();
@@ -175,18 +152,11 @@ public final class BuiltInInterceptors {
         };
     }
 
-    /**
-     * Rate Counter Interceptor.
-     * Count logs per level/category.
-     */
     public static LogInterceptor rateCounter() {
         return new RateCounterInterceptor();
     }
 
-    /**
-     * Error Context Enrichment.
-     * Add extra context when throwable is present (stored as String in LogEntry).
-     */
+    /** 에러 컨텍스트 보강 */
     public static LogInterceptor errorEnrichment() {
         return (entry, chain) -> {
             String throwableStr = entry.getThrowable();
@@ -199,7 +169,6 @@ public final class BuiltInInterceptors {
                 enrichedContext.putAll(entry.getContext());
             }
 
-            // Parse throwable string (format: "ClassName: message")
             int colonIndex = throwableStr.indexOf(':');
             if (colonIndex > 0) {
                 enrichedContext.put("error.type", throwableStr.substring(0, colonIndex).trim());
@@ -228,17 +197,11 @@ public final class BuiltInInterceptors {
         };
     }
 
-    /**
-     * Metrics collector interface.
-     */
     public interface MetricsCollector {
         void recordSuccess(String level, long durationNanos);
         void recordFailure(String level, long durationNanos, Exception e);
     }
 
-    /**
-     * Rate counter implementation.
-     */
     private static class RateCounterInterceptor implements LogInterceptor {
         private final Map<String, AtomicLong> counters = new HashMap<>();
 

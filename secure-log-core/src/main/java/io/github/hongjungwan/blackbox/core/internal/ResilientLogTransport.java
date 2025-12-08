@@ -24,14 +24,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 
 /**
- * ResilientLogTransport - 장애 복원력을 갖춘 로그 전송
- *
- * 주니어 면접용으로 단순화된 구현:
- * - Circuit Breaker: 연속 실패 시 fast-fail
- * - Retry Policy: 고정 간격 재시도
- * - Fallback: 파일 기반 백업
- *
- * RateLimiter 제거 - SDK 레벨 rate limiting은 과도함
+ * 장애 복원력 로그 전송. Circuit Breaker + Retry + Fallback 파일 백업.
  */
 @Slf4j
 public class ResilientLogTransport {
@@ -41,18 +34,11 @@ public class ResilientLogTransport {
     private final LogSerializer serializer;
     private final Path fallbackDirectory;
 
-    // Resilience components (단순화됨)
     private final CircuitBreaker circuitBreaker;
     private final RetryPolicy retryPolicy;
-
-    // Metrics
     private final SdkMetrics metrics = SdkMetrics.getInstance();
-
-    // Replay scheduler
     private ScheduledExecutorService replayScheduler;
     private volatile boolean autoReplayEnabled = false;
-
-    // Counter for unique fallback filenames
     private final AtomicLong fallbackFileCounter = new AtomicLong(0);
 
     public ResilientLogTransport(SecureLogConfig config, LogSerializer serializer) {
@@ -61,7 +47,6 @@ public class ResilientLogTransport {
         this.kafkaProducer = initializeKafkaProducer();
         this.fallbackDirectory = Paths.get(config.getFallbackDirectory());
 
-        // 단순화된 Circuit Breaker
         this.circuitBreaker = CircuitBreaker.builder("kafka-transport")
                 .failureThreshold(config.getCircuitBreakerFailureThreshold())
                 .openDuration(Duration.ofSeconds(30))
@@ -74,13 +59,11 @@ public class ResilientLogTransport {
                 })
                 .build();
 
-        // 단순화된 Retry Policy (고정 간격)
         this.retryPolicy = RetryPolicy.builder()
                 .maxAttempts(config.getKafkaRetries())
                 .initialDelay(Duration.ofMillis(100))
                 .build();
 
-        // Ensure fallback directory exists
         ensureFallbackDirectory();
     }
 
@@ -99,9 +82,7 @@ public class ResilientLogTransport {
         }
     }
 
-    /**
-     * 로그 데이터 전송 (Circuit Breaker + Retry 적용)
-     */
+    /** 로그 전송 (Circuit Breaker + Retry 적용) */
     public void send(byte[] data) {
         try {
             circuitBreaker.execute(() -> {
@@ -117,9 +98,7 @@ public class ResilientLogTransport {
         }
     }
 
-    /**
-     * 재시도 정책 적용하여 전송
-     */
+    /** Retry 적용 전송 */
     private void sendWithRetry(byte[] data) {
         if (kafkaProducer == null) {
             throw new TransportException("Kafka producer not configured");
@@ -130,9 +109,7 @@ public class ResilientLogTransport {
         });
     }
 
-    /**
-     * Fallback 파일 저장소로 전송
-     */
+    /** Fallback 파일 저장 */
     public void sendToFallback(byte[] data) {
         try {
             String timestamp = LocalDateTime.now()
@@ -152,17 +129,13 @@ public class ResilientLogTransport {
         }
     }
 
-    /**
-     * LogEntry를 Fallback으로 전송
-     */
+    /** LogEntry Fallback 저장 */
     public void sendToFallback(LogEntry entry) {
         byte[] data = serializer.serialize(entry);
         sendToFallback(data);
     }
 
-    /**
-     * Kafka 복구 시 Fallback 로그 재전송
-     */
+    /** Kafka 복구 시 Fallback 로그 재전송 */
     public void replayFallbackLogs() {
         if (kafkaProducer == null) {
             log.warn("Cannot replay - Kafka not configured");
@@ -194,9 +167,7 @@ public class ResilientLogTransport {
         }
     }
 
-    /**
-     * 단일 Fallback 파일 재전송 (파일 잠금으로 동시 처리 방지)
-     */
+    /** 단일 파일 재전송 (파일 잠금 적용) */
     private boolean replayFile(Path file) {
         FileLock lock = null;
         try (FileChannel channel = FileChannel.open(file, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
@@ -208,7 +179,6 @@ public class ResilientLogTransport {
 
             byte[] data = Files.readAllBytes(file);
 
-            // Zstd 프레임 검증
             if (!isValidZstdFrame(data)) {
                 log.warn("Corrupted fallback file (invalid Zstd frame), deleting: {}", file);
                 releaseLock(lock);
@@ -217,7 +187,6 @@ public class ResilientLogTransport {
                 return true;
             }
 
-            // Circuit Breaker 적용하여 전송
             circuitBreaker.execute(() -> {
                 kafkaProducer.send(config.getKafkaTopic(), data);
                 return null;
@@ -226,7 +195,6 @@ public class ResilientLogTransport {
             releaseLock(lock);
             lock = null;
 
-            // 성공 후 안전 삭제
             secureDelete(file);
             log.info("Replayed and deleted: {}", file);
             return true;
@@ -249,9 +217,7 @@ public class ResilientLogTransport {
         }
     }
 
-    /**
-     * Zstd 프레임 유효성 검사 (magic number: 0xFD2FB528)
-     */
+    /** Zstd 프레임 검증 (magic number: 0xFD2FB528) */
     private boolean isValidZstdFrame(byte[] data) {
         if (data == null || data.length < 4) {
             return false;
@@ -262,9 +228,7 @@ public class ResilientLogTransport {
                (data[3] & 0xFF) == 0xFD;
     }
 
-    /**
-     * 안전 삭제: 덮어쓰기 후 삭제
-     */
+    /** 안전 삭제 (덮어쓰기 후 삭제) */
     private void secureDelete(Path file) throws IOException {
         long size = Files.size(file);
         byte[] zeros = new byte[(int) Math.min(size, 8192)];
@@ -282,9 +246,7 @@ public class ResilientLogTransport {
         Files.delete(file);
     }
 
-    /**
-     * 자동 Fallback 재전송 활성화
-     */
+    /** 자동 Fallback 재전송 활성화 */
     public void enableAutoReplay(Duration interval) {
         if (autoReplayEnabled) {
             return;
@@ -311,9 +273,7 @@ public class ResilientLogTransport {
         log.info("Enabled auto-replay every {}s", interval.toSeconds());
     }
 
-    /**
-     * 자동 Fallback 재전송 비활성화
-     */
+    /** 자동 Fallback 재전송 비활성화 */
     public void disableAutoReplay() {
         if (replayScheduler != null) {
             replayScheduler.shutdown();
@@ -330,23 +290,15 @@ public class ResilientLogTransport {
         autoReplayEnabled = false;
     }
 
-    /**
-     * Circuit Breaker 강제 리셋
-     */
+    /** Circuit Breaker 강제 리셋 */
     public void resetCircuitBreaker() {
         circuitBreaker.reset();
     }
 
-    /**
-     * Circuit Breaker 상태 조회
-     */
     public CircuitBreaker.State getCircuitBreakerState() {
         return circuitBreaker.getState();
     }
 
-    /**
-     * Circuit Breaker 메트릭 조회
-     */
     public CircuitBreaker.Metrics getCircuitBreakerMetrics() {
         return circuitBreaker.getMetrics();
     }
@@ -358,9 +310,6 @@ public class ResilientLogTransport {
         }
     }
 
-    /**
-     * Transport 예외
-     */
     public static class TransportException extends RuntimeException {
         public TransportException(String message) {
             super(message);

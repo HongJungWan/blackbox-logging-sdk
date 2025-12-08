@@ -8,10 +8,7 @@ import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 /**
- * RetryPolicy - 간단한 고정 간격 재시도 정책
- *
- * 주니어 면접용으로 단순화된 구현.
- * Exponential backoff, jitter 제거 - 고정 간격 재시도.
+ * 고정 간격 재시도 정책
  */
 @Slf4j
 public final class RetryPolicy {
@@ -29,12 +26,7 @@ public final class RetryPolicy {
     }
 
     /**
-     * 재시도 정책에 따라 작업 실행.
-     *
-     * @param <T> the return type
-     * @param operation the operation to execute
-     * @return the result if successful
-     * @throws RetryExhaustedException if all retries exhausted
+     * 재시도 정책에 따라 작업 실행
      */
     public <T> T execute(Supplier<T> operation) throws RetryExhaustedException {
         Exception lastException = null;
@@ -65,7 +57,7 @@ public final class RetryPolicy {
     }
 
     /**
-     * Runnable 실행.
+     * Runnable 실행
      */
     public void execute(Runnable operation) throws RetryExhaustedException {
         execute(() -> {
@@ -75,7 +67,7 @@ public final class RetryPolicy {
     }
 
     /**
-     * 딜레이 계산 (기존 API 호환 - 항상 고정 딜레이 반환).
+     * 딜레이 계산 (API 호환 - 고정 딜레이 반환)
      */
     Duration calculateDelay(int attempt) {
         return Duration.ofMillis(delayMs);
@@ -86,7 +78,7 @@ public final class RetryPolicy {
             return false;
         }
 
-        // 커스텀 predicate 먼저 확인
+        // 커스텀 predicate 우선
         if (retryPredicate != null) {
             return retryPredicate.test(e);
         }
@@ -110,7 +102,7 @@ public final class RetryPolicy {
     }
 
     /**
-     * 기본 정책 생성 (3회 재시도, 100ms 간격).
+     * 기본 정책 생성 (3회 재시도, 100ms 간격)
      */
     public static RetryPolicy defaults() {
         return builder().build();
@@ -120,9 +112,6 @@ public final class RetryPolicy {
         return new Builder();
     }
 
-    /**
-     * Builder
-     */
     public static class Builder {
         private int maxAttempts = 3;
         private long delayMs = 100;
@@ -130,7 +119,7 @@ public final class RetryPolicy {
         private Set<Class<? extends Exception>> retryableExceptions = Set.of();
 
         /**
-         * 최대 재시도 횟수 설정 (기본: 3).
+         * 최대 재시도 횟수 (기본: 3)
          */
         public Builder maxAttempts(int maxAttempts) {
             this.maxAttempts = maxAttempts;
@@ -138,7 +127,7 @@ public final class RetryPolicy {
         }
 
         /**
-         * 초기 딜레이 설정 (기존 API 호환 - 고정 딜레이로 사용).
+         * 고정 딜레이 설정 (API 호환)
          */
         public Builder initialDelay(Duration initialDelay) {
             this.delayMs = initialDelay.toMillis();
@@ -146,7 +135,7 @@ public final class RetryPolicy {
         }
 
         /**
-         * 고정 딜레이 설정.
+         * 고정 딜레이 설정
          */
         public Builder fixedDelay(Duration delay) {
             this.delayMs = delay.toMillis();
@@ -154,39 +143,35 @@ public final class RetryPolicy {
         }
 
         /**
-         * 최대 딜레이 (무시됨 - API 호환용).
+         * API 호환용 - 무시됨
          */
         public Builder maxDelay(Duration maxDelay) {
-            // 단순화로 인해 무시 - 고정 딜레이 사용
             return this;
         }
 
         /**
-         * 배율 (무시됨 - API 호환용).
+         * API 호환용 - 무시됨
          */
         public Builder multiplier(double multiplier) {
-            // 단순화로 인해 무시 - exponential backoff 없음
             return this;
         }
 
         /**
-         * 지터 팩터 (무시됨 - API 호환용).
+         * API 호환용 - 무시됨
          */
         public Builder jitterFactor(double jitterFactor) {
-            // 단순화로 인해 무시
             return this;
         }
 
         /**
-         * 지터 비활성화 (무시됨 - API 호환용).
+         * API 호환용 - 무시됨
          */
         public Builder noJitter() {
-            // 이미 jitter 없음
             return this;
         }
 
         /**
-         * 재시도 조건 predicate 설정.
+         * 재시도 조건 설정
          */
         public Builder retryOn(Predicate<Exception> predicate) {
             this.retryPredicate = predicate;
@@ -194,7 +179,7 @@ public final class RetryPolicy {
         }
 
         /**
-         * 재시도할 예외 클래스 설정.
+         * 재시도할 예외 클래스 설정
          */
         @SafeVarargs
         public final Builder retryOnExceptions(Class<? extends Exception>... exceptions) {
@@ -208,7 +193,7 @@ public final class RetryPolicy {
     }
 
     /**
-     * 재시도 소진 시 던지는 예외
+     * 재시도 소진 시 발생하는 예외
      */
     public static class RetryExhaustedException extends RuntimeException {
         public RetryExhaustedException(String message, Throwable cause) {

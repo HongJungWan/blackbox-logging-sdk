@@ -6,16 +6,7 @@ import org.assertj.core.api.AbstractAssert;
 import java.util.Map;
 
 /**
- * FEAT-07: LogAssert TestKit
- *
- * AssertJ-style fluent API for testing logs
- *
- * Usage:
- * <pre>
- * assertThatLog(entry)
- *     .hasField("rrn")
- *     .isMasked();
- * </pre>
+ * 로그 검증용 Fluent API TestKit. AssertJ 스타일 메서드 체이닝 지원.
  */
 public class LogAssert extends AbstractAssert<LogAssert, LogEntry> {
 
@@ -29,9 +20,7 @@ public class LogAssert extends AbstractAssert<LogAssert, LogEntry> {
         return new LogAssert(actual);
     }
 
-    /**
-     * Assert log has specific field in payload
-     */
+    /** payload에 지정 필드 존재 검증 */
     public LogAssert hasField(String fieldName) {
         isNotNull();
 
@@ -43,9 +32,7 @@ public class LogAssert extends AbstractAssert<LogAssert, LogEntry> {
         return this;
     }
 
-    /**
-     * Assert current field is masked (contains asterisks)
-     */
+    /** 현재 필드 마스킹 여부 검증 (* 포함) */
     public LogAssert isMasked() {
         isNotNull();
 
@@ -67,9 +54,7 @@ public class LogAssert extends AbstractAssert<LogAssert, LogEntry> {
         return this;
     }
 
-    /**
-     * Assert current field is NOT masked
-     */
+    /** 현재 필드 미마스킹 검증 */
     public LogAssert isNotMasked() {
         isNotNull();
 
@@ -86,9 +71,7 @@ public class LogAssert extends AbstractAssert<LogAssert, LogEntry> {
         return this;
     }
 
-    /**
-     * Assert current field is encrypted
-     */
+    /** 현재 필드 암호화 여부 검증 */
     public LogAssert isEncrypted() {
         isNotNull();
 
@@ -110,9 +93,7 @@ public class LogAssert extends AbstractAssert<LogAssert, LogEntry> {
         return this;
     }
 
-    /**
-     * Assert log has integrity hash
-     */
+    /** 무결성 해시 존재 검증 */
     public LogAssert hasIntegrity() {
         isNotNull();
 
@@ -127,9 +108,7 @@ public class LogAssert extends AbstractAssert<LogAssert, LogEntry> {
         return this;
     }
 
-    /**
-     * Assert log has encrypted DEK
-     */
+    /** 암호화된 DEK 존재 검증 */
     public LogAssert hasEncryptedDek() {
         isNotNull();
 
@@ -140,9 +119,7 @@ public class LogAssert extends AbstractAssert<LogAssert, LogEntry> {
         return this;
     }
 
-    /**
-     * Assert log level
-     */
+    /** 로그 레벨 검증 */
     public LogAssert hasLevel(String level) {
         isNotNull();
 
@@ -153,9 +130,7 @@ public class LogAssert extends AbstractAssert<LogAssert, LogEntry> {
         return this;
     }
 
-    /**
-     * Assert message contains text
-     */
+    /** 메시지에 텍스트 포함 검증 */
     public LogAssert messageContains(String text) {
         isNotNull();
 
@@ -166,9 +141,7 @@ public class LogAssert extends AbstractAssert<LogAssert, LogEntry> {
         return this;
     }
 
-    /**
-     * Assert has trace ID
-     */
+    /** Trace ID 존재 검증 */
     public LogAssert hasTraceId() {
         isNotNull();
 
@@ -179,9 +152,7 @@ public class LogAssert extends AbstractAssert<LogAssert, LogEntry> {
         return this;
     }
 
-    /**
-     * Assert has span ID
-     */
+    /** Span ID 존재 검증 */
     public LogAssert hasSpanId() {
         isNotNull();
 
@@ -192,9 +163,7 @@ public class LogAssert extends AbstractAssert<LogAssert, LogEntry> {
         return this;
     }
 
-    /**
-     * Assert context contains key
-     */
+    /** Context에 키 존재 검증 */
     public LogAssert hasContextKey(String key) {
         isNotNull();
 
@@ -205,9 +174,7 @@ public class LogAssert extends AbstractAssert<LogAssert, LogEntry> {
         return this;
     }
 
-    /**
-     * Assert context value equals
-     */
+    /** Context 값 일치 검증 */
     public LogAssert hasContextValue(String key, Object value) {
         hasContextKey(key);
 
@@ -219,9 +186,7 @@ public class LogAssert extends AbstractAssert<LogAssert, LogEntry> {
         return this;
     }
 
-    /**
-     * Assert payload equals map
-     */
+    /** payload Map 일치 검증 */
     public LogAssert hasPayload(Map<String, Object> expected) {
         isNotNull();
 
@@ -232,9 +197,7 @@ public class LogAssert extends AbstractAssert<LogAssert, LogEntry> {
         return this;
     }
 
-    /**
-     * Assert repeat count
-     */
+    /** 반복 횟수 검증 */
     public LogAssert hasRepeatCount(int count) {
         isNotNull();
 

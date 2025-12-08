@@ -24,9 +24,7 @@ import org.springframework.context.SmartLifecycle;
 import org.springframework.context.annotation.Bean;
 
 /**
- * Spring Boot AutoConfiguration for SecureHR Logging SDK.
- *
- * <p>Auto-configures SDK components with profile-aware settings.</p>
+ * SecureHR Logging SDK Spring Boot 자동 설정.
  */
 @AutoConfiguration
 @EnableConfigurationProperties(SecureLogProperties.class)
@@ -125,7 +123,7 @@ public class SecureLogAutoConfiguration {
     }
 
     /**
-     * SmartLifecycle implementation for SDK initialization.
+     * SDK 초기화 및 종료를 관리하는 SmartLifecycle 구현체.
      */
     static class SecureLogLifecycle implements SmartLifecycle {
 
