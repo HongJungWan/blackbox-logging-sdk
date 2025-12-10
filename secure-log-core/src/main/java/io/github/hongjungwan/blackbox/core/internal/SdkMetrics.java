@@ -8,22 +8,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
 
 /**
- * FEAT-12: SDK Metrics & Observability (Datadog/Sentry Pattern)
- *
- * Comprehensive metrics collection for SDK operations.
- * Thread-safe, lock-free counters using LongAdder.
- *
- * Features:
- * - Throughput metrics (logs/sec)
- * - Latency histograms
- * - Error rates
- * - Pipeline stage metrics
- * - Resource utilization
- *
- * Based on:
- * - Datadog APM metrics
- * - Sentry SDK telemetry
- * - Micrometer patterns
+ * SDK 메트릭 수집 (LongAdder 기반 lock-free). Throughput, Latency, Error rate 등.
  */
 public final class SdkMetrics {
 
@@ -31,35 +16,23 @@ public final class SdkMetrics {
 
     private final Instant startTime = Instant.now();
 
-    // Counters (thread-safe, lock-free)
     private final LongAdder logsProcessed = new LongAdder();
     private final LongAdder logsDropped = new LongAdder();
     private final LongAdder logsFailed = new LongAdder();
     private final LongAdder bytesProcessed = new LongAdder();
     private final LongAdder bytesSent = new LongAdder();
-
-    // Per-level counters
     private final Map<String, LongAdder> levelCounters = new ConcurrentHashMap<>();
-
-    // Latency tracking
     private final LatencyHistogram processingLatency = new LatencyHistogram("processing");
     private final LatencyHistogram transportLatency = new LatencyHistogram("transport");
     private final LatencyHistogram encryptionLatency = new LatencyHistogram("encryption");
     private final LatencyHistogram maskingLatency = new LatencyHistogram("masking");
-
-    // Pipeline stage metrics
     private final Map<String, StageMetrics> stageMetrics = new ConcurrentHashMap<>();
-
-    // Error tracking
     private final Map<String, LongAdder> errorCounters = new ConcurrentHashMap<>();
-
-    // Circuit breaker metrics
     private final AtomicLong circuitBreakerOpened = new AtomicLong();
     private final AtomicLong circuitBreakerClosed = new AtomicLong();
     private final AtomicLong fallbackActivations = new AtomicLong();
 
     private SdkMetrics() {
-        // Initialize stage metrics
         for (String stage : new String[]{"dedup", "mask", "integrity", "encrypt", "serialize", "transport"}) {
             stageMetrics.put(stage, new StageMetrics(stage));
         }
@@ -68,8 +41,6 @@ public final class SdkMetrics {
     public static SdkMetrics getInstance() {
         return INSTANCE;
     }
-
-    // ========== Recording Methods ==========
 
     public void recordLogProcessed(String level, long bytes) {
         logsProcessed.increment();
@@ -127,18 +98,10 @@ public final class SdkMetrics {
         fallbackActivations.incrementAndGet();
     }
 
-    // ========== Timer Utilities ==========
-
-    /**
-     * Start a timer for measuring operation duration
-     */
     public Timer startTimer() {
         return new Timer();
     }
 
-    /**
-     * Timer for measuring operation duration
-     */
     public static class Timer {
         private final long startNanos = System.nanoTime();
 
@@ -151,11 +114,6 @@ public final class SdkMetrics {
         }
     }
 
-    // ========== Snapshot Methods ==========
-
-    /**
-     * Get complete metrics snapshot
-     */
     public Snapshot getSnapshot() {
         return new Snapshot(
                 Instant.now(),
@@ -182,27 +140,18 @@ public final class SdkMetrics {
         );
     }
 
-    /**
-     * Get throughput (logs per second)
-     */
     public double getThroughput() {
         Duration uptime = Duration.between(startTime, Instant.now());
         long seconds = Math.max(1, uptime.getSeconds());
         return (double) logsProcessed.sum() / seconds;
     }
 
-    /**
-     * Get error rate (0.0 - 1.0)
-     */
     public double getErrorRate() {
         long total = logsProcessed.sum() + logsFailed.sum();
         if (total == 0) return 0;
         return (double) logsFailed.sum() / total;
     }
 
-    /**
-     * Reset all metrics
-     */
     public void reset() {
         logsProcessed.reset();
         logsDropped.reset();
@@ -221,25 +170,15 @@ public final class SdkMetrics {
         fallbackActivations.set(0);
     }
 
-    /**
-     * Reset all metrics for testing purposes.
-     * This method clears all counters, histograms, and maps to provide a clean state.
-     *
-     * @deprecated Use reset() instead. This method exists only for backward compatibility.
-     */
+    /** @deprecated reset() 사용 권장 */
     @Deprecated
     public void resetForTesting() {
         reset();
-        // Also clear the maps to ensure completely fresh state for tests
         levelCounters.clear();
         errorCounters.clear();
     }
 
-    // ========== Inner Classes ==========
-
-    /**
-     * Latency histogram for percentile calculations
-     */
+    /** Latency 히스토그램 */
     public static class LatencyHistogram {
         private final String name;
         private final LongAdder count = new LongAdder();
@@ -247,7 +186,6 @@ public final class SdkMetrics {
         private final AtomicLong minNanos = new AtomicLong(Long.MAX_VALUE);
         private final AtomicLong maxNanos = new AtomicLong(0);
 
-        // Bucket boundaries in nanoseconds (p50, p90, p99, p999)
         private final long[] bucketBoundaries = {
                 1_000_000,      // 1ms
                 5_000_000,      // 5ms
@@ -270,11 +208,9 @@ public final class SdkMetrics {
             count.increment();
             totalNanos.add(nanos);
 
-            // Update min/max
             updateMin(nanos);
             updateMax(nanos);
 
-            // Update bucket
             int bucket = findBucket(nanos);
             buckets[bucket].increment();
         }
@@ -313,10 +249,10 @@ public final class SdkMetrics {
             return new LatencyStats(
                     name,
                     c,
-                    (double) totalNanos.sum() / c / 1_000_000, // avg in ms
-                    (double) minNanos.get() / 1_000_000,       // min in ms
-                    (double) maxNanos.get() / 1_000_000,       // max in ms
-                    estimatePercentile(0.99)                    // p99 in ms
+                    (double) totalNanos.sum() / c / 1_000_000,
+                    (double) minNanos.get() / 1_000_000,
+                    (double) maxNanos.get() / 1_000_000,
+                    estimatePercentile(0.99)
             );
         }
 
@@ -351,9 +287,6 @@ public final class SdkMetrics {
         }
     }
 
-    /**
-     * Latency statistics
-     */
     public record LatencyStats(
             String name,
             long count,
@@ -363,9 +296,6 @@ public final class SdkMetrics {
             double p99Ms
     ) {}
 
-    /**
-     * Per-stage metrics
-     */
     public static class StageMetrics {
         private final String name;
         private final LongAdder successCount = new LongAdder();
@@ -408,9 +338,6 @@ public final class SdkMetrics {
         }
     }
 
-    /**
-     * Stage statistics
-     */
     public record StageStats(
             String name,
             long successCount,
@@ -419,9 +346,6 @@ public final class SdkMetrics {
             LatencyStats latency
     ) {}
 
-    /**
-     * Complete metrics snapshot
-     */
     public record Snapshot(
             Instant snapshotTime,
             Instant startTime,

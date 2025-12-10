@@ -1,9 +1,8 @@
 plugins {
 	id 'java-library'
-	id 'com.gradleup.shadow'
 }
 
-description = 'SecureHR Logging SDK - Core Library (Zero-Dependency with Shading)'
+description = 'SecureHR Logging SDK - Core Library'
 
 // Create separate source set for integration tests
 sourceSets {
@@ -33,30 +32,18 @@ dependencies {
 	api 'ch.qos.logback:logback-classic:1.5.15'
 	api 'org.slf4j:slf4j-api:2.0.16'
 
-	// JSON serialization (will be shaded)
+	// JSON serialization
 	implementation 'com.fasterxml.jackson.core:jackson-databind:2.18.2'
 	implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.18.2'
 
-	// Compression (will be shaded)
+	// Compression
 	implementation 'com.github.luben:zstd-jni:1.5.6-3'
-
-	// Lock-free data structures (will be shaded)
-	implementation 'org.jctools:jctools-core:4.0.5'
-
-	// Cache for deduplication (will be shaded)
-	implementation 'com.github.ben-manes.caffeine:caffeine:3.1.8'
 
 	// Security/Crypto
 	implementation 'org.bouncycastle:bcprov-jdk18on:1.79'
 
-	// Kafka client (will be shaded)
+	// Kafka client
 	implementation 'org.apache.kafka:kafka-clients:3.7.0'
-
-	// AWS KMS SDK (will be shaded)
-	implementation platform('software.amazon.awssdk:bom:2.25.0')
-	implementation 'software.amazon.awssdk:kms'
-	implementation 'software.amazon.awssdk:sts'
-	implementation 'software.amazon.awssdk:url-connection-client'
 
 	// Lombok for development
 	compileOnly 'org.projectlombok:lombok:1.18.36'
@@ -70,7 +57,6 @@ dependencies {
 	// Testcontainers for integration tests
 	testImplementation 'org.testcontainers:testcontainers:1.19.7'
 	testImplementation 'org.testcontainers:kafka:1.19.7'
-	testImplementation 'org.testcontainers:localstack:1.19.7'
 	testImplementation 'org.testcontainers:junit-jupiter:1.19.7'
 
 	// JMH for performance benchmarks
@@ -81,34 +67,6 @@ dependencies {
 	testCompileOnly 'org.projectlombok:lombok:1.18.36'
 	testAnnotationProcessor 'org.projectlombok:lombok:1.18.36'
 }
-
-shadowJar {
-	archiveClassifier.set('')
-
-	// Relocate dependencies to avoid classpath conflicts
-	relocate 'com.fasterxml.jackson', 'io.github.hongjungwan.blackbox.internal.jackson'
-	relocate 'com.github.luben.zstd', 'io.github.hongjungwan.blackbox.internal.zstd'
-	relocate 'org.jctools', 'io.github.hongjungwan.blackbox.internal.jctools'
-	relocate 'com.github.benmanes.caffeine', 'io.github.hongjungwan.blackbox.internal.caffeine'
-	relocate 'org.bouncycastle', 'io.github.hongjungwan.blackbox.internal.bouncycastle'
-
-	// Kafka client relocation
-	relocate 'org.apache.kafka', 'io.github.hongjungwan.blackbox.internal.kafka'
-
-	// AWS SDK relocation
-	relocate 'software.amazon.awssdk', 'io.github.hongjungwan.blackbox.internal.awssdk'
-
-	// Minimize JAR size by removing unused classes
-	minimize()
-
-	// Exclude signatures to avoid security exceptions
-	exclude 'META-INF/*.SF'
-	exclude 'META-INF/*.DSA'
-	exclude 'META-INF/*.RSA'
-}
-
-// Make shadowJar the default artifact
-tasks.build.dependsOn tasks.shadowJar
 
 // Integration test task
 task integrationTest(type: Test) {

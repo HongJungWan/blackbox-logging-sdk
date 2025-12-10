@@ -7,57 +7,37 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import java.util.List;
 
 /**
- * Configuration properties for SecureHR Logging SDK
- *
- * Binds to application.yml under 'secure-hr.logging'
+ * SecureHR Logging SDK 설정 Properties (prefix: secure-hr.logging).
  */
 @Data
 @ConfigurationProperties(prefix = "secure-hr.logging")
 public class SecureLogProperties {
 
-    /**
-     * Enable/disable SDK
-     */
+    /** SDK 활성화 여부 */
     private boolean enabled = true;
 
-    /**
-     * Logging mode: SYNC, ASYNC, FALLBACK
-     */
+    /** 로깅 모드: SYNC, ASYNC, FALLBACK */
     private SecureLogConfig.LoggingMode mode = SecureLogConfig.LoggingMode.ASYNC;
 
-    /**
-     * Ring buffer size for async logging
-     */
+    /** 비동기 로깅용 Ring Buffer 크기 */
     private int bufferSize = 8192;
 
-    /**
-     * PII masking configuration
-     */
+    /** 비동기 로깅용 Consumer 스레드 수 */
+    private int consumerThreads = 2;
+
+    /** PII 마스킹 설정 */
     private PiiMaskingProperties piiMasking = new PiiMaskingProperties();
 
-    /**
-     * Security configuration
-     */
+    /** 보안 설정 */
     private SecurityProperties security = new SecurityProperties();
 
-    /**
-     * Enable semantic deduplication
-     */
-    private boolean deduplicationEnabled = true;
-
-    /**
-     * Deduplication window in milliseconds
-     */
-    private long deduplicationWindowMs = 1000;
-
-    /**
-     * Kafka configuration
-     */
+    /** Kafka 설정 */
     private KafkaProperties kafka = new KafkaProperties();
 
-    /**
-     * Fallback directory for circuit breaker
-     */
+    /** 감사(Audit) 설정 */
+    private AuditProperties audit = new AuditProperties();
+
+    /** Circuit Breaker 발동 시 Fallback 저장 디렉토리 */
     private String fallbackDirectory = "logs/fallback";
 
     @Data
@@ -70,12 +50,18 @@ public class SecureLogProperties {
     public static class SecurityProperties {
         private boolean encryptionEnabled = true;
         private boolean integrityEnabled = true;
-        private String kmsEndpoint;
-        private String kmsKeyId;
-        private String kmsRegion = "ap-northeast-2";
-        private String kmsRoleArn;
-        private int kmsTimeoutMs = 2000;
-        private boolean kmsFallbackEnabled = true;
+
+        /** 비상 모드용 RSA 공개키 (Base64 인코딩, X.509 형식) */
+        private String emergencyPublicKey;
+    }
+
+    @Data
+    public static class AuditProperties {
+        /** @AuditContext AOP 활성화 여부 */
+        private boolean enabled = true;
+
+        /** 감사 로그 기록 활성화 여부 */
+        private boolean logEnabled = true;
     }
 
     @Data

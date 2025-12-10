@@ -23,25 +23,14 @@ secure-hr:
 
     # Security Configuration
     security:
-      # Enable encryption
+      # Enable encryption (AES-256-GCM with local key management)
       encryption-enabled: true
 
       # Enable Merkle Tree integrity
       integrity-enabled: true
 
-      # AWS KMS Configuration (recommended for production)
-      kms-key-id: "arn:aws:kms:ap-northeast-2:123456789012:key/your-key-id"
-      kms-region: "ap-northeast-2"
-      # kms-role-arn: "arn:aws:iam::123456789012:role/KmsAccessRole"  # Optional: for cross-account
-
-      # Legacy KMS endpoint (deprecated, use AWS KMS instead)
-      # kms-endpoint: "https://kms.internal/v1/keys"
-
-      # KMS timeout in milliseconds
-      kms-timeout-ms: 2000
-
-      # Enable fallback key when KMS is unavailable (NOT for production)
-      kms-fallback-enabled: false
+      # Emergency mode: RSA public key for emergency decryption (Base64, X.509)
+      # emergency-public-key: "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A..."
 
     # Semantic Deduplication
     deduplication-enabled: true
@@ -59,7 +48,7 @@ secure-hr:
       max-block-ms: 5000
       security-protocol: "PLAINTEXT"
 
-    # Fallback Configuration (circuit breaker)
+    # Fallback Configuration (circuit breaker, key storage)
     fallback-directory: "logs/fallback"
 
 # Profile-specific configuration
@@ -75,9 +64,6 @@ secure-hr:
     security:
       encryption-enabled: true
       integrity-enabled: true
-      kms-key-id: "${AWS_KMS_KEY_ID}"
-      kms-region: "${AWS_REGION:ap-northeast-2}"
-      kms-fallback-enabled: false
     kafka:
       bootstrap-servers: "${KAFKA_BOOTSTRAP_SERVERS:kafka-prod:9092}"
       acks: "all"
@@ -97,6 +83,5 @@ secure-hr:
     security:
       encryption-enabled: false  # Disabled for development
       integrity-enabled: true
-      kms-fallback-enabled: true  # Use fallback key for local dev
     kafka:
       bootstrap-servers: "localhost:9092"

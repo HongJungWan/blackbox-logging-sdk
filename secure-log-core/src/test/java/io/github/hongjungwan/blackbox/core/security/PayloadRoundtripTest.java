@@ -18,10 +18,9 @@ class PayloadRoundtripTest {
     @BeforeEach
     void setUp() {
         SecureLogConfig config = SecureLogConfig.builder()
-                .kmsFallbackEnabled(true)
                 .build();
-        KmsClient kmsClient = new KmsClient(config);
-        encryption = new EnvelopeEncryption(config, kmsClient);
+        LocalKeyManager keyManager = new LocalKeyManager(config);
+        encryption = new EnvelopeEncryption(config, keyManager);
     }
 
     @Test

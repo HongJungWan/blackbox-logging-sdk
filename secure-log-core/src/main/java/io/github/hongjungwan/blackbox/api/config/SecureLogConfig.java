@@ -6,238 +6,111 @@ import lombok.Getter;
 import java.util.List;
 
 /**
- * Configuration for SecureHR Logging SDK.
- *
- * <p>Provides comprehensive configuration options for:</p>
- * <ul>
- *   <li>Logging mode (SYNC, ASYNC, FALLBACK)</li>
- *   <li>PII masking patterns</li>
- *   <li>Encryption settings (AWS KMS integration)</li>
- *   <li>Kafka transport configuration</li>
- *   <li>Resilience settings (circuit breaker, rate limiter)</li>
- * </ul>
- *
- * <h2>Usage Example:</h2>
- * <pre>{@code
- * // Development configuration
- * SecureLogConfig config = SecureLogConfig.defaultConfig();
- *
- * // Production configuration with AWS KMS
- * SecureLogConfig config = SecureLogConfig.awsKmsProductionConfig(
- *     "arn:aws:kms:ap-northeast-2:123456789:key/xxx",
- *     "ap-northeast-2",
- *     "kafka-broker:9092"
- * );
- * }</pre>
- *
- * @since 8.0.0
+ * SDK 설정. 로깅 모드, PII 마스킹, 암호화, Kafka, Circuit Breaker 설정 포함.
  */
 @Getter
 @Builder
 public class SecureLogConfig {
 
-    /**
-     * Operating mode: SYNC, ASYNC, FALLBACK
-     */
+    /** 로깅 모드: SYNC, ASYNC, FALLBACK */
     @Builder.Default
     private final LoggingMode mode = LoggingMode.ASYNC;
 
-    /**
-     * Ring buffer size for async logging (power of 2 recommended)
-     */
+    /** 비동기 로깅용 버퍼 크기 (2의 제곱 권장) */
     @Builder.Default
     private final int bufferSize = 8192;
 
-    /**
-     * Enable PII masking
-     */
+    /** 비동기 로깅용 Consumer 스레드 수 (기본: 2) */
+    @Builder.Default
+    private final int consumerThreads = 2;
+
+    /** PII 마스킹 활성화 */
     @Builder.Default
     private final boolean piiMaskingEnabled = true;
 
-    /**
-     * PII patterns to mask (rrn, credit_card, password, ssn, etc.)
-     */
+    /** 마스킹 대상 PII 패턴 */
     @Builder.Default
     private final List<String> piiPatterns = List.of("rrn", "credit_card", "password", "ssn");
 
-    /**
-     * Enable encryption
-     */
+    /** 암호화 활성화 */
     @Builder.Default
     private final boolean encryptionEnabled = true;
 
-    /**
-     * KMS endpoint for key management (legacy, use kmsKeyId for AWS KMS)
-     */
-    private final String kmsEndpoint;
-
-    /**
-     * AWS KMS Key ID or ARN
-     */
-    private final String kmsKeyId;
-
-    /**
-     * AWS KMS Region (e.g., ap-northeast-2)
-     */
-    @Builder.Default
-    private final String kmsRegion = "ap-northeast-2";
-
-    /**
-     * AWS IAM Role ARN for cross-account access (optional)
-     */
-    private final String kmsRoleArn;
-
-    /**
-     * KMS timeout in milliseconds
-     */
-    @Builder.Default
-    private final int kmsTimeoutMs = 2000;
-
-    /**
-     * Use embedded fallback key when KMS is unavailable (NOT for production)
-     */
-    @Builder.Default
-    private final boolean kmsFallbackEnabled = true;
-
-    /**
-     * Enable semantic deduplication
-     */
-    @Builder.Default
-    private final boolean deduplicationEnabled = true;
-
-    /**
-     * Deduplication window in milliseconds
-     */
-    @Builder.Default
-    private final long deduplicationWindowMs = 1000;
-
-    /**
-     * Kafka bootstrap servers (for production log shipping)
-     */
+    /** Kafka 브로커 주소 */
     private final String kafkaBootstrapServers;
 
-    /**
-     * Kafka topic for logs
-     */
+    /** Kafka 토픽명 */
     @Builder.Default
     private final String kafkaTopic = "secure-hr-logs";
 
-    /**
-     * Kafka retry attempts
-     */
+    /** Kafka 재시도 횟수 */
     @Builder.Default
     private final int kafkaRetries = 3;
 
-    /**
-     * Kafka acks configuration: "all", "1", "0"
-     */
+    /** Kafka acks 설정: "all", "1", "0" */
     @Builder.Default
     private final String kafkaAcks = "all";
 
-    /**
-     * Kafka batch size in bytes
-     */
+    /** Kafka 배치 크기 (bytes) */
     @Builder.Default
     private final int kafkaBatchSize = 16384;
 
-    /**
-     * Kafka linger time in milliseconds
-     */
+    /** Kafka linger 시간 (ms) */
     @Builder.Default
     private final int kafkaLingerMs = 1;
 
-    /**
-     * Kafka compression type: none, gzip, snappy, lz4, zstd
-     */
+    /** Kafka 압축 타입: none, gzip, snappy, lz4, zstd */
     @Builder.Default
     private final String kafkaCompressionType = "zstd";
 
-    /**
-     * Kafka max block time in milliseconds (send() blocking time)
-     */
+    /** Kafka send() 최대 블로킹 시간 (ms) */
     @Builder.Default
     private final long kafkaMaxBlockMs = 5000;
 
-    /**
-     * Kafka security protocol: PLAINTEXT, SSL, SASL_PLAINTEXT, SASL_SSL
-     */
+    /** Kafka 보안 프로토콜 */
     @Builder.Default
     private final String kafkaSecurityProtocol = "PLAINTEXT";
 
-    /**
-     * Fallback directory for circuit breaker
-     */
+    /** Fallback 디렉토리 (Circuit Breaker 발동 시, 키 저장 시) */
     @Builder.Default
     private final String fallbackDirectory = "logs/fallback";
 
-    /**
-     * Enable Merkle Tree integrity
-     */
+    /** Merkle Tree 무결성 검증 활성화 */
     @Builder.Default
     private final boolean integrityEnabled = true;
 
-    /**
-     * Circuit breaker failure threshold
-     */
+    /** Circuit Breaker 실패 임계치 */
     @Builder.Default
     private final int circuitBreakerFailureThreshold = 3;
 
-    /**
-     * Rate limiter logs per second
-     */
+    /** 초당 로그 Rate Limit */
     @Builder.Default
     private final long rateLimitLogsPerSecond = 20000;
 
     public enum LoggingMode {
-        /** Synchronous logging (blocks caller) */
+        /** 동기 로깅 (호출자 블로킹) */
         SYNC,
-        /** Asynchronous logging with ring buffer */
+        /** 비동기 로깅 (링 버퍼) */
         ASYNC,
-        /** Fallback mode (disk-only, no Kafka) */
+        /** Fallback 모드 (디스크 전용, Kafka 없음) */
         FALLBACK
     }
 
-    /**
-     * Default configuration for development.
-     */
+    /** 개발용 기본 설정 */
     public static SecureLogConfig defaultConfig() {
         return SecureLogConfig.builder().build();
     }
 
-    /**
-     * Production configuration with legacy KMS endpoint.
-     * @deprecated Use {@link #awsKmsProductionConfig(String, String, String)} for AWS KMS
-     */
-    @Deprecated
-    public static SecureLogConfig productionConfig(String kmsEndpoint, String kafkaBootstrapServers) {
+    /** 프로덕션 설정 */
+    public static SecureLogConfig productionConfig(String kafkaBootstrapServers) {
         return SecureLogConfig.builder()
                 .mode(LoggingMode.ASYNC)
-                .kmsEndpoint(kmsEndpoint)
-                .kafkaBootstrapServers(kafkaBootstrapServers)
-                .encryptionEnabled(true)
-                .piiMaskingEnabled(true)
-                .integrityEnabled(true)
-                .deduplicationEnabled(true)
-                .kmsFallbackEnabled(false)
-                .build();
-    }
-
-    /**
-     * Production configuration with AWS KMS.
-     */
-    public static SecureLogConfig awsKmsProductionConfig(String kmsKeyId, String kmsRegion, String kafkaBootstrapServers) {
-        return SecureLogConfig.builder()
-                .mode(LoggingMode.ASYNC)
-                .kmsKeyId(kmsKeyId)
-                .kmsRegion(kmsRegion)
                 .kafkaBootstrapServers(kafkaBootstrapServers)
                 .kafkaAcks("all")
                 .kafkaCompressionType("zstd")
                 .encryptionEnabled(true)
                 .piiMaskingEnabled(true)
                 .integrityEnabled(true)
-                .deduplicationEnabled(true)
-                .kmsFallbackEnabled(false)
                 .build();
     }
 }

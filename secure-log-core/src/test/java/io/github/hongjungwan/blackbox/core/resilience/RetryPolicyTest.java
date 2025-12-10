@@ -10,7 +10,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.assertj.core.api.Assertions.*;
 
 /**
- * Tests for RetryPolicy (FEAT-11: Resilience)
+ * Tests for RetryPolicy (단순화된 버전 - 고정 간격 재시도)
  */
 @DisplayName("RetryPolicy")
 class RetryPolicyTest {
@@ -24,7 +24,6 @@ class RetryPolicyTest {
         void shouldReturnResultOnSuccess() {
             RetryPolicy policy = RetryPolicy.builder()
                     .maxAttempts(3)
-                    .noJitter()
                     .build();
 
             String result = policy.execute(() -> "success");
@@ -57,7 +56,6 @@ class RetryPolicyTest {
             RetryPolicy policy = RetryPolicy.builder()
                     .maxAttempts(3)
                     .initialDelay(Duration.ofMillis(1))
-                    .noJitter()
                     .build();
 
             AtomicInteger attempts = new AtomicInteger(0);
@@ -76,7 +74,6 @@ class RetryPolicyTest {
             RetryPolicy policy = RetryPolicy.builder()
                     .maxAttempts(3)
                     .initialDelay(Duration.ofMillis(1))
-                    .noJitter()
                     .build();
 
             AtomicInteger attempts = new AtomicInteger(0);
@@ -99,7 +96,6 @@ class RetryPolicyTest {
                     .maxAttempts(3)
                     .retryOnExceptions(IllegalArgumentException.class)
                     .initialDelay(Duration.ofMillis(1))
-                    .noJitter()
                     .build();
 
             AtomicInteger attempts = new AtomicInteger(0);
@@ -120,7 +116,6 @@ class RetryPolicyTest {
                     .maxAttempts(5)
                     .retryOn(e -> e.getMessage() != null && e.getMessage().contains("retry"))
                     .initialDelay(Duration.ofMillis(1))
-                    .noJitter()
                     .build();
 
             AtomicInteger attempts = new AtomicInteger(0);
@@ -140,66 +135,27 @@ class RetryPolicyTest {
     }
 
     @Nested
-    @DisplayName("Backoff Calculation")
-    class BackoffCalculationTests {
+    @DisplayName("Fixed Delay (단순화)")
+    class FixedDelayTests {
 
         @Test
-        @DisplayName("should calculate exponential delay")
-        void shouldCalculateExponentialDelay() {
-            RetryPolicy policy = RetryPolicy.builder()
-                    .initialDelay(Duration.ofMillis(100))
-                    .multiplier(2.0)
-                    .maxDelay(Duration.ofSeconds(10))
-                    .noJitter()
-                    .build();
-
-            // Attempt 1: 100ms
-            assertThat(policy.calculateDelay(1).toMillis()).isEqualTo(100);
-
-            // Attempt 2: 200ms
-            assertThat(policy.calculateDelay(2).toMillis()).isEqualTo(200);
-
-            // Attempt 3: 400ms
-            assertThat(policy.calculateDelay(3).toMillis()).isEqualTo(400);
-        }
-
-        @Test
-        @DisplayName("should cap at max delay")
-        void shouldCapAtMaxDelay() {
-            RetryPolicy policy = RetryPolicy.builder()
-                    .initialDelay(Duration.ofSeconds(1))
-                    .multiplier(10.0)
-                    .maxDelay(Duration.ofSeconds(5))
-                    .noJitter()
-                    .build();
-
-            // Attempt 3 would be 100s, should cap at 5s
-            assertThat(policy.calculateDelay(3).toSeconds()).isEqualTo(5);
-        }
-
-        @Test
-        @DisplayName("should apply jitter within bounds")
-        void shouldApplyJitterWithinBounds() {
-            RetryPolicy policy = RetryPolicy.builder()
-                    .initialDelay(Duration.ofMillis(1000))
-                    .multiplier(1.0)
-                    .jitterFactor(0.25) // ±25%
-                    .build();
-
-            // Run multiple times to check jitter
-            for (int i = 0; i < 10; i++) {
-                Duration delay = policy.calculateDelay(1);
-                // Should be between 750ms and 1250ms
-                assertThat(delay.toMillis()).isBetween(750L, 1250L);
-            }
-        }
-
-        @Test
-        @DisplayName("should use fixed delay when multiplier is 1")
+        @DisplayName("should use fixed delay for all retries")
         void shouldUseFixedDelay() {
             RetryPolicy policy = RetryPolicy.builder()
+                    .initialDelay(Duration.ofMillis(100))
+                    .build();
+
+            // 모든 시도에서 동일한 딜레이
+            assertThat(policy.calculateDelay(1).toMillis()).isEqualTo(100);
+            assertThat(policy.calculateDelay(2).toMillis()).isEqualTo(100);
+            assertThat(policy.calculateDelay(3).toMillis()).isEqualTo(100);
+        }
+
+        @Test
+        @DisplayName("should use fixedDelay builder method")
+        void shouldUseFixedDelayMethod() {
+            RetryPolicy policy = RetryPolicy.builder()
                     .fixedDelay(Duration.ofMillis(500))
-                    .noJitter()
                     .build();
 
             assertThat(policy.calculateDelay(1).toMillis()).isEqualTo(500);
@@ -218,7 +174,6 @@ class RetryPolicyTest {
             RetryPolicy policy = RetryPolicy.builder()
                     .maxAttempts(3)
                     .initialDelay(Duration.ofMillis(1))
-                    .noJitter()
                     .build();
 
             AtomicInteger counter = new AtomicInteger(0);

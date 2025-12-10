@@ -1,15 +1,13 @@
 package io.github.hongjungwan.blackbox.core.integration;
 
 import io.github.hongjungwan.blackbox.api.config.SecureLogConfig;
-import io.github.hongjungwan.blackbox.core.internal.SemanticDeduplicator;
 import io.github.hongjungwan.blackbox.api.domain.LogEntry;
 import io.github.hongjungwan.blackbox.core.internal.MerkleChain;
 import io.github.hongjungwan.blackbox.core.security.PiiMasker;
 import io.github.hongjungwan.blackbox.core.internal.LogProcessor;
 import io.github.hongjungwan.blackbox.core.security.EnvelopeEncryption;
-import io.github.hongjungwan.blackbox.core.security.KmsClient;
+import io.github.hongjungwan.blackbox.core.security.LocalKeyManager;
 import io.github.hongjungwan.blackbox.core.internal.LogSerializer;
-import io.github.hongjungwan.blackbox.core.internal.KafkaProducer;
 import io.github.hongjungwan.blackbox.core.internal.ResilientLogTransport;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
@@ -40,7 +38,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("E2E 통합 테스트")
 class EndToEndTest {
 
-    // Each test uses unique topic to avoid interference
     private String testTopic;
 
     @Container
@@ -58,15 +55,12 @@ class EndToEndTest {
     void setUp() throws Exception {
         tempDir = Files.createTempDirectory("e2e-test");
 
-        // Generate unique topic for each test to avoid interference
         testTopic = "e2e-test-" + UUID.randomUUID().toString().substring(0, 8);
 
         config = SecureLogConfig.builder()
                 .piiMaskingEnabled(true)
                 .encryptionEnabled(true)
-                .deduplicationEnabled(true)
                 .integrityEnabled(true)
-                .kmsFallbackEnabled(true)
                 .kafkaBootstrapServers(kafka.getBootstrapServers())
                 .kafkaTopic(testTopic)
                 .kafkaAcks("all")
@@ -77,17 +71,15 @@ class EndToEndTest {
         transport = new ResilientLogTransport(config, serializer);
 
         PiiMasker piiMasker = new PiiMasker(config);
-        KmsClient kmsClient = new KmsClient(config);
-        EnvelopeEncryption encryption = new EnvelopeEncryption(config, kmsClient);
+        LocalKeyManager keyManager = new LocalKeyManager(config);
+        EnvelopeEncryption encryption = new EnvelopeEncryption(config, keyManager);
         MerkleChain merkleChain = new MerkleChain();
-        SemanticDeduplicator deduplicator = new SemanticDeduplicator(config);
 
         processor = new LogProcessor(
                 config,
                 piiMasker,
                 encryption,
                 merkleChain,
-                deduplicator,
                 serializer,
                 transport
         );
@@ -98,7 +90,6 @@ class EndToEndTest {
         if (transport != null) {
             transport.close();
         }
-        // Cleanup temp directory
         if (tempDir != null) {
             Files.walk(tempDir)
                     .sorted((a, b) -> -a.compareTo(b))
@@ -132,7 +123,6 @@ class EndToEndTest {
             // when
             processor.process(entry);
 
-            // Allow time for async processing
             Thread.sleep(2000);
 
             // then
@@ -164,44 +154,12 @@ class EndToEndTest {
 
             Thread.sleep(2000);
 
-            // then - verify data was sent (actual content is encrypted)
+            // then
             try (KafkaConsumer<String, byte[]> consumer = createConsumer()) {
                 consumer.subscribe(Collections.singletonList(testTopic));
                 ConsumerRecords<String, byte[]> records = consumer.poll(Duration.ofSeconds(10));
 
                 assertThat(records.count()).isGreaterThan(0);
-            }
-        }
-    }
-
-    @Nested
-    @DisplayName("중복 제거")
-    class DeduplicationTests {
-
-        @Test
-        @DisplayName("중복 로그는 한 번만 전송되어야 한다")
-        void shouldDeduplicateLogs() throws Exception {
-            // given
-            LogEntry entry = LogEntry.builder()
-                    .timestamp(System.currentTimeMillis())
-                    .level("INFO")
-                    .message("Duplicate test message")
-                    .build();
-
-            // when - send same message multiple times
-            for (int i = 0; i < 5; i++) {
-                processor.process(entry);
-            }
-
-            Thread.sleep(2000);
-
-            // then - only one should be sent (deduplication)
-            try (KafkaConsumer<String, byte[]> consumer = createConsumer()) {
-                consumer.subscribe(Collections.singletonList(testTopic));
-                ConsumerRecords<String, byte[]> records = consumer.poll(Duration.ofSeconds(10));
-
-                // Should have 1 record due to deduplication
-                assertThat(records.count()).isEqualTo(1);
             }
         }
     }
@@ -213,10 +171,10 @@ class EndToEndTest {
         @Test
         @DisplayName("다수의 로그를 처리할 수 있어야 한다")
         void shouldHandleMultipleLogs() throws Exception {
-            // given - This test verifies the pipeline handles multiple logs without errors
+            // given
             int logCount = 10;
 
-            // when - Process multiple logs through the async pipeline
+            // when
             for (int i = 0; i < logCount; i++) {
                 LogEntry entry = LogEntry.builder()
                         .timestamp(System.currentTimeMillis() + i)
@@ -226,11 +184,9 @@ class EndToEndTest {
                 processor.process(entry);
             }
 
-            // Wait for async processing
             Thread.sleep(5000);
 
-            // then - Verify at least one log was successfully processed and sent
-            // Note: Exact count depends on async processing timing and deduplication
+            // then
             try (KafkaConsumer<String, byte[]> consumer = createConsumer()) {
                 consumer.subscribe(Collections.singletonList(testTopic));
 
@@ -242,7 +198,6 @@ class EndToEndTest {
                     received += records.count();
                 }
 
-                // Verify at least one log was delivered (async processing guarantee)
                 assertThat(received).as("Should receive at least one log through the async pipeline")
                         .isGreaterThanOrEqualTo(1);
             }
@@ -280,12 +235,9 @@ class EndToEndTest {
 
                 assertThat(records.count()).isGreaterThan(0);
 
-                // Deserialize and verify tracing info is preserved
                 byte[] data = records.iterator().next().value();
                 LogEntry deserialized = serializer.deserialize(data);
 
-                // Note: Data is encrypted, so we can't verify traceId directly
-                // But we can verify the structure is preserved
                 assertThat(deserialized.getTraceId()).isEqualTo(traceId);
                 assertThat(deserialized.getSpanId()).isEqualTo(spanId);
             }

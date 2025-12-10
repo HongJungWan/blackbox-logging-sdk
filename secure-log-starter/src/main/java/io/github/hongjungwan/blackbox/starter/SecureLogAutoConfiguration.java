@@ -1,16 +1,22 @@
 package io.github.hongjungwan.blackbox.starter;
 
+import io.github.hongjungwan.blackbox.api.SecureLogger;
+import io.github.hongjungwan.blackbox.api.SecureLoggerFactory;
 import io.github.hongjungwan.blackbox.core.internal.VirtualAsyncAppender;
 import io.github.hongjungwan.blackbox.api.config.SecureLogConfig;
-import io.github.hongjungwan.blackbox.core.internal.SemanticDeduplicator;
 import io.github.hongjungwan.blackbox.core.internal.SecureLogDoctor;
 import io.github.hongjungwan.blackbox.core.internal.MerkleChain;
+import io.github.hongjungwan.blackbox.core.security.AnnotationMaskingProcessor;
+import io.github.hongjungwan.blackbox.core.security.EmergencyEncryptor;
 import io.github.hongjungwan.blackbox.core.security.PiiMasker;
 import io.github.hongjungwan.blackbox.core.internal.LogProcessor;
 import io.github.hongjungwan.blackbox.core.security.EnvelopeEncryption;
-import io.github.hongjungwan.blackbox.core.security.KmsClient;
+import io.github.hongjungwan.blackbox.core.security.LocalKeyManager;
 import io.github.hongjungwan.blackbox.core.internal.LogSerializer;
 import io.github.hongjungwan.blackbox.core.internal.ResilientLogTransport;
+import io.github.hongjungwan.blackbox.starter.aop.AuditContextAspect;
+import io.github.hongjungwan.blackbox.starter.aop.AuditUserExtractor;
+import io.github.hongjungwan.blackbox.starter.aop.SecurityContextUserExtractor;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
@@ -23,16 +29,16 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
 
 /**
- * FEAT-06: Spring Boot AutoConfiguration
- *
- * Auto-configures SecureHR Logging SDK components
- * Profile-aware: 'prod' profile enables ASYNC + Binary mode automatically
+ * SecureHR Logging SDK Spring Boot 자동 설정.
  */
 @AutoConfiguration
 @EnableConfigurationProperties(SecureLogProperties.class)
 @ConditionalOnProperty(prefix = "secure-hr.logging", name = "enabled", havingValue = "true", matchIfMissing = true)
+@Import(SecureLogAutoConfiguration.AuditContextConfiguration.class)
 @Slf4j
 public class SecureLogAutoConfiguration {
 
@@ -42,13 +48,10 @@ public class SecureLogAutoConfiguration {
         return SecureLogConfig.builder()
                 .mode(properties.getMode())
                 .bufferSize(properties.getBufferSize())
+                .consumerThreads(properties.getConsumerThreads())
                 .piiMaskingEnabled(properties.getPiiMasking().isEnabled())
                 .piiPatterns(properties.getPiiMasking().getPatterns())
                 .encryptionEnabled(properties.getSecurity().isEncryptionEnabled())
-                .kmsEndpoint(properties.getSecurity().getKmsEndpoint())
-                .kmsTimeoutMs(properties.getSecurity().getKmsTimeoutMs())
-                .deduplicationEnabled(properties.isDeduplicationEnabled())
-                .deduplicationWindowMs(properties.getDeduplicationWindowMs())
                 .kafkaBootstrapServers(properties.getKafka().getBootstrapServers())
                 .kafkaTopic(properties.getKafka().getTopic())
                 .kafkaRetries(properties.getKafka().getRetries())
@@ -63,19 +66,42 @@ public class SecureLogAutoConfiguration {
         return new PiiMasker(config);
     }
 
-    /**
-     * FIX P3 #23: Add destroyMethod for proper resource cleanup.
-     */
-    @Bean(destroyMethod = "close")
+    @Bean
     @ConditionalOnMissingBean
-    public KmsClient kmsClient(SecureLogConfig config) {
-        return new KmsClient(config);
+    public AnnotationMaskingProcessor annotationMaskingProcessor(SecureLogProperties properties) {
+        AnnotationMaskingProcessor processor = new AnnotationMaskingProcessor();
+
+        // 비상 모드 설정
+        String emergencyPublicKey = properties.getSecurity().getEmergencyPublicKey();
+        if (emergencyPublicKey != null && !emergencyPublicKey.isBlank()) {
+            try {
+                EmergencyEncryptor encryptor = EmergencyEncryptor.fromBase64(emergencyPublicKey);
+                processor.setEmergencyEncryptor(encryptor);
+                log.info("Emergency mode encryption configured for AnnotationMaskingProcessor");
+            } catch (Exception e) {
+                log.warn("Failed to configure emergency encryption: {}", e.getMessage());
+            }
+        }
+
+        return processor;
     }
 
     @Bean
     @ConditionalOnMissingBean
-    public EnvelopeEncryption envelopeEncryption(SecureLogConfig config, KmsClient kmsClient) {
-        return new EnvelopeEncryption(config, kmsClient);
+    public SecureLogger secureLogger() {
+        return SecureLoggerFactory.getLogger(SecureLogAutoConfiguration.class);
+    }
+
+    @Bean(destroyMethod = "close")
+    @ConditionalOnMissingBean
+    public LocalKeyManager localKeyManager(SecureLogConfig config) {
+        return new LocalKeyManager(config);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public EnvelopeEncryption envelopeEncryption(SecureLogConfig config, LocalKeyManager keyManager) {
+        return new EnvelopeEncryption(config, keyManager);
     }
 
     @Bean
@@ -86,19 +112,10 @@ public class SecureLogAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public SemanticDeduplicator semanticDeduplicator(SecureLogConfig config) {
-        return new SemanticDeduplicator(config);
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
     public LogSerializer logSerializer() {
         return new LogSerializer();
     }
 
-    /**
-     * FIX P3 #23: Add destroyMethod for proper resource cleanup.
-     */
     @Bean(destroyMethod = "close")
     @ConditionalOnMissingBean
     public ResilientLogTransport logTransport(SecureLogConfig config, LogSerializer serializer) {
@@ -112,11 +129,10 @@ public class SecureLogAutoConfiguration {
             PiiMasker piiMasker,
             EnvelopeEncryption encryption,
             MerkleChain merkleChain,
-            SemanticDeduplicator deduplicator,
             LogSerializer serializer,
             ResilientLogTransport transport
     ) {
-        return new LogProcessor(config, piiMasker, encryption, merkleChain, deduplicator, serializer, transport);
+        return new LogProcessor(config, piiMasker, encryption, merkleChain, serializer, transport);
     }
 
     @Bean
@@ -131,9 +147,6 @@ public class SecureLogAutoConfiguration {
         return new SecureLogDoctor(config);
     }
 
-    /**
-     * Lifecycle manager for SDK initialization and diagnostics
-     */
     @Bean
     public SecureLogLifecycle secureLogLifecycle(
             SecureLogDoctor doctor,
@@ -145,7 +158,7 @@ public class SecureLogAutoConfiguration {
     }
 
     /**
-     * SmartLifecycle implementation for SDK initialization
+     * SDK 초기화 및 종료를 관리하는 SmartLifecycle 구현체.
      */
     static class SecureLogLifecycle implements SmartLifecycle {
 
@@ -168,14 +181,12 @@ public class SecureLogAutoConfiguration {
         public void start() {
             log.info("Starting SecureHR Logging SDK v8.0.0...");
 
-            // Run diagnostics
             SecureLogDoctor.DiagnosticReport report = doctor.diagnose();
 
             if (report.hasFailures()) {
                 log.warn("Diagnostic failures detected - Consider switching to FALLBACK mode");
             }
 
-            // Restore MerkleChain state if integrity is enabled
             if (config.isIntegrityEnabled()) {
                 Path chainStatePath = getMerkleChainStatePath();
                 boolean loaded = merkleChain.tryLoadState(chainStatePath);
@@ -185,13 +196,11 @@ public class SecureLogAutoConfiguration {
                     log.info("MerkleChain starting with genesis state (no previous state found)");
                 }
 
-                // Log distributed deployment warning
                 log.warn("IMPORTANT: MerkleChain provides per-instance integrity only. " +
                         "In distributed deployments, each instance maintains its own chain. " +
                         "Consider using a centralized integrity service for cross-instance verification.");
             }
 
-            // Start appender with error handling
             try {
                 appender.start();
                 log.info("VirtualAsyncAppender started successfully");
@@ -208,14 +217,11 @@ public class SecureLogAutoConfiguration {
         public void stop() {
             log.info("Stopping SecureHR Logging SDK...");
 
-            // Stop appender gracefully
             appender.stop();
 
-            // Persist MerkleChain state if integrity is enabled
             if (config.isIntegrityEnabled()) {
                 Path chainStatePath = getMerkleChainStatePath();
                 try {
-                    // Ensure parent directory exists
                     Path parentDir = chainStatePath.getParent();
                     if (parentDir != null && !Files.exists(parentDir)) {
                         Files.createDirectories(parentDir);
@@ -232,10 +238,6 @@ public class SecureLogAutoConfiguration {
             log.info("SecureHR Logging SDK stopped");
         }
 
-        /**
-         * Get the path for MerkleChain state file.
-         * Uses fallback directory if configured, otherwise user home.
-         */
         private Path getMerkleChainStatePath() {
             String fallbackDir = config.getFallbackDirectory();
             if (fallbackDir != null && !fallbackDir.isBlank()) {
@@ -251,8 +253,29 @@ public class SecureLogAutoConfiguration {
 
         @Override
         public int getPhase() {
-            // Start early in the lifecycle
             return Integer.MIN_VALUE + 100;
+        }
+    }
+
+    /**
+     * AOP 기반 @AuditContext 지원 설정.
+     * secure-hr.logging.audit.enabled=true 시 활성화 (기본값: true)
+     */
+    @Configuration
+    @ConditionalOnProperty(prefix = "secure-hr.logging.audit", name = "enabled", havingValue = "true", matchIfMissing = true)
+    static class AuditContextConfiguration {
+
+        @Bean
+        @ConditionalOnMissingBean
+        public AuditUserExtractor auditUserExtractor() {
+            return new SecurityContextUserExtractor();
+        }
+
+        @Bean
+        @ConditionalOnMissingBean
+        public AuditContextAspect auditContextAspect(SecureLogger secureLogger, AuditUserExtractor userExtractor) {
+            log.info("AuditContextAspect enabled - @AuditContext annotations will be processed");
+            return new AuditContextAspect(secureLogger, userExtractor);
         }
     }
 }

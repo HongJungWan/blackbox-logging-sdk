@@ -22,8 +22,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * High-performance Kafka producer for log shipping.
- * Uses async sending with callbacks for non-blocking operation.
+ * 고성능 Kafka Producer. 비동기 전송 + 콜백 기반.
  */
 @Slf4j
 public class KafkaProducer implements AutoCloseable {
@@ -44,48 +43,30 @@ public class KafkaProducer implements AutoCloseable {
     private org.apache.kafka.clients.producer.KafkaProducer<String, byte[]> createProducer(SecureLogConfig config) {
         Properties props = new Properties();
 
-        // Required settings
         props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, config.getKafkaBootstrapServers());
         props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
         props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, ByteArraySerializer.class.getName());
 
-        // Reliability settings
         props.put(ProducerConfig.ACKS_CONFIG, config.getKafkaAcks());
         props.put(ProducerConfig.RETRIES_CONFIG, config.getKafkaRetries());
         props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, "all".equals(config.getKafkaAcks()));
 
-        // Performance tuning
         props.put(ProducerConfig.BATCH_SIZE_CONFIG, config.getKafkaBatchSize());
         props.put(ProducerConfig.LINGER_MS_CONFIG, config.getKafkaLingerMs());
         props.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, config.getKafkaCompressionType());
         props.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, config.getKafkaMaxBlockMs());
-
-        // Buffer memory for batching
-        props.put(ProducerConfig.BUFFER_MEMORY_CONFIG, 33554432); // 32MB
-
-        // Security protocol
+        props.put(ProducerConfig.BUFFER_MEMORY_CONFIG, 33554432);  // 32MB
         props.put("security.protocol", config.getKafkaSecurityProtocol());
 
         return new org.apache.kafka.clients.producer.KafkaProducer<>(props);
     }
 
-    /**
-     * Send data to the default topic asynchronously.
-     *
-     * @param data the serialized log data
-     * @return CompletableFuture that completes when send is acknowledged
-     */
+    /** 기본 토픽으로 비동기 전송 */
     public CompletableFuture<RecordMetadata> send(byte[] data) {
         return send(config.getKafkaTopic(), data);
     }
 
-    /**
-     * Send data to a specific topic asynchronously.
-     *
-     * @param topic the Kafka topic
-     * @param data  the serialized log data
-     * @return CompletableFuture that completes when send is acknowledged
-     */
+    /** 지정 토픽으로 비동기 전송 */
     public CompletableFuture<RecordMetadata> send(String topic, byte[] data) {
         if (closed.get()) {
             CompletableFuture<RecordMetadata> future = new CompletableFuture<>();
@@ -114,14 +95,7 @@ public class KafkaProducer implements AutoCloseable {
         return future;
     }
 
-    /**
-     * Send data synchronously (blocking).
-     * Use sparingly - prefer async send() for better performance.
-     *
-     * @param topic the Kafka topic
-     * @param data  the serialized log data
-     * @throws KafkaSendException if send fails
-     */
+    /** 동기 전송 (blocking) */
     public void sendSync(String topic, byte[] data) {
         try {
             send(topic, data).join();
@@ -130,52 +104,26 @@ public class KafkaProducer implements AutoCloseable {
         }
     }
 
-    /**
-     * Flush any buffered records to Kafka.
-     */
+    /** 버퍼된 레코드 플러시 */
     public void flush() {
         if (!closed.get()) {
             producer.flush();
         }
     }
 
-    /**
-     * Get the total number of successfully sent messages.
-     */
     public long getSentCount() {
         return sentCount.get();
     }
 
-    /**
-     * Get the total number of failed send attempts.
-     */
     public long getErrorCount() {
         return errorCount.get();
     }
 
-    /**
-     * Check if the producer is closed.
-     */
     public boolean isClosed() {
         return closed.get();
     }
 
-    /**
-     * Handle Kafka exceptions with detailed error categorization and logging.
-     *
-     * <p>Error categories:</p>
-     * <ul>
-     *   <li><strong>Authentication/Authorization:</strong> Credential or permission issues - requires config fix</li>
-     *   <li><strong>Network/Timeout:</strong> Transient failures - may be retried</li>
-     *   <li><strong>Data:</strong> Record too large or serialization issues - requires payload adjustment</li>
-     *   <li><strong>Topic:</strong> Invalid topic or topic doesn't exist - requires config fix</li>
-     * </ul>
-     *
-     * @param topic the target topic
-     * @param dataSize the size of the data being sent
-     * @param exception the original Kafka exception
-     * @return a categorized KafkaSendException with detailed message
-     */
+    /** Kafka 예외 분류 처리 (AUTHENTICATION/NETWORK/TIMEOUT/DATA/TOPIC) */
     private KafkaSendException handleKafkaException(String topic, int dataSize, Exception exception) {
         String errorCategory;
         String errorMessage;
@@ -267,11 +215,7 @@ public class KafkaProducer implements AutoCloseable {
         }
     }
 
-    /**
-     * Exception thrown when Kafka send fails.
-     *
-     * <p>Contains categorized error information for better error handling.</p>
-     */
+    /** Kafka 전송 예외 (카테고리 + 재시도 가능 여부 포함) */
     public static class KafkaSendException extends RuntimeException {
 
         private final String errorCategory;
@@ -289,31 +233,10 @@ public class KafkaProducer implements AutoCloseable {
             this.retryable = retryable;
         }
 
-        /**
-         * Get the error category (e.g., AUTHENTICATION, NETWORK, TIMEOUT).
-         */
         public String getErrorCategory() {
             return errorCategory;
         }
 
-        /**
-         * Check if this error is potentially retryable.
-         *
-         * <p>Non-retryable errors include:</p>
-         * <ul>
-         *   <li>Authentication/Authorization failures</li>
-         *   <li>Invalid topic configuration</li>
-         *   <li>Record too large</li>
-         *   <li>Serialization errors</li>
-         * </ul>
-         *
-         * <p>Retryable errors include:</p>
-         * <ul>
-         *   <li>Network connectivity issues</li>
-         *   <li>Timeouts</li>
-         *   <li>Broker unavailability</li>
-         * </ul>
-         */
         public boolean isRetryable() {
             return retryable;
         }

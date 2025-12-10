@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**SecureHR Logging SDK (v8.0.0)** is a zero-dependency, high-performance logging SDK for HR domain applications requiring strict security and compliance. Built on Java 21 Virtual Threads and Lock-free Queue (JCTools) architecture.
+**SecureHR Logging SDK (v8.0.0-RELEASE)** - HR 도메인용 보안 로깅 SDK. PII 자동 마스킹, AES-256-GCM 암호화, Hash Chain 무결성 검증 지원.
 
 **Artifact ID**: `secure-hr-logging-starter`
-**Requirements**: Java 21+, Spring Boot 3.5+
-**Architecture**: Multi-module Gradle project with dependency shading
+**Requirements**: Java 21+, Spring Boot 3.5.8+
+**Architecture**: Multi-module Gradle project (core / starter / test)
 
 ## Common Commands
 
@@ -18,9 +18,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 # Clean build (useful for troubleshooting)
 ./gradlew clean build
-
-# Build with dependency shading (Shadow JAR)
-./gradlew shadowJar
 
 # Run tests
 ./gradlew test
@@ -44,59 +41,61 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 # Run unit tests only (no Docker required)
 ./gradlew :secure-log-core:test
+
+# Check Gradle version / Update wrapper
+./gradlew --version
+./gradlew wrapper --gradle-version=8.10
 ```
 
 ## Project Structure
 
 ```
 .
-├── secure-log-core/           # [Library] Pure Java, shaded dependencies
+├── secure-log-core/           # [Library] Pure Java core library
 ├── secure-log-starter/        # [Starter] Spring Boot AutoConfiguration
 └── secure-log-test/           # [Test] TestKit with LogAssert utilities
 ```
 
 **Base Package**: `io.github.hongjungwan.blackbox`
 
-## Critical Architecture Constraints
+## Architecture Constraints
 
-### 1. Virtual Thread Compatibility
-- **NEVER use `synchronized` keyword** - causes carrier thread pinning
-- **Always use `ReentrantLock` or `StampedLock`** for synchronization
-- Use `Executors.newVirtualThreadPerTaskExecutor()` for async operations
-- Use `LockSupport.parkNanos()` instead of `Thread.sleep()`
+### 1. Thread Safety
+- Use `ReentrantLock` for synchronization where needed
+- Standard Java `BlockingQueue` for async processing
+- `AtomicBoolean`, `AtomicLong` for thread-safe counters
 
-### 2. Zero-Allocation Design
-- **No `String.replaceAll()` or regex object creation** in hot paths
-- Use JCTools `MpscArrayQueue` for lock-free queues
-- Use char array manipulation for masking (see `PiiMasker.java`)
-- Target: GC allocation rate < 1MB/sec under load
+### 2. Simplicity
+- Standard String operations for masking (no char array manipulation)
+- Fixed-interval retry (no exponential backoff)
+- Simple CLOSED/OPEN circuit breaker (no HALF_OPEN state)
 
-### 3. Dependency Shading
-All internal dependencies relocated to `io.github.hongjungwan.blackbox.internal.*`:
-- Jackson, Zstd, JCTools, Caffeine, BouncyCastle, Kafka, AWS SDK
-
-Configured in `secure-log-core/build.gradle` using Gradle Shadow plugin.
+### 3. Dependencies
+Dependencies defined in `secure-log-core/build.gradle`:
+- Jackson (`jackson-databind` 2.18.2) - JSON serialization
+- Zstd (`zstd-jni` 1.5.6-3) - Compression
+- BouncyCastle (`bcprov-jdk18on` 1.79) - Cryptography
+- Kafka (`kafka-clients` 3.7.0) - Log transport
+- AWS SDK (`kms`, `sts` - 2.25.0) - KMS integration
 
 ## Core Architecture
 
 ### Processing Pipeline
 ```
-LogEvent → VirtualAsyncAppender → LogProcessor Pipeline:
-  1. Deduplication (SemanticDeduplicator) - async summary emission via Virtual Thread executor
-  2. PII Masking (PiiMasker) - message + payload 필드 모두 마스킹, value pattern auto-detection
-  3. Integrity Chain (MerkleChain) - persisted on shutdown, restored on startup
-  4. Encryption (EnvelopeEncryption) - DEK rotation every 1 hour
-  5. Serialization (LogSerializer - Zstd) - 100MB limit, size validation after decompress
-  6. Transport (ResilientLogTransport - Kafka/Fallback) - file locking for replay safety
+LogEvent -> VirtualAsyncAppender -> LogProcessor Pipeline:
+  1. PII Masking (PiiMasker) - message + payload masking, value pattern auto-detection
+  2. Integrity Chain (MerkleChain) - persisted on shutdown, restored on startup
+  3. Encryption (EnvelopeEncryption) - DEK rotation every 1 hour
+  4. Serialization (LogSerializer - Zstd) - 100MB limit, size validation after decompress
+  5. Transport (ResilientLogTransport - Kafka/Fallback) - file locking for replay safety
 ```
 
 ### Graceful Shutdown
 ```
 SecureLogLifecycle.stop():
   1. VirtualAsyncAppender.stop() - 10s buffer drain timeout with progress check
-  2. Timeout exceeded → remaining events saved to fallback via processFallback()
-  3. LogProcessor.flush() - closes deduplicator executor
-  4. MerkleChain.saveState() - persist hash chain state
+  2. Timeout exceeded -> remaining events saved to fallback via processFallback()
+  3. MerkleChain.saveState() - persist hash chain state
 ```
 
 ### Backpressure Handling
@@ -104,7 +103,6 @@ When buffer is full, `VirtualAsyncAppender.handleBackpressure()` saves events to
 
 ### Error Recovery Security
 - `LogProcessor.process()` ensures PII-masked entry is always sent to fallback on exceptions
-- `EnhancedLogProcessor.process()` tracks `maskedEntry` variable to guarantee masked data in fallback
 - Original unmasked data never leaks to fallback storage
 
 ### Key Subsystems
@@ -116,66 +114,140 @@ When buffer is full, `VirtualAsyncAppender.handleBackpressure()` saves events to
 
 **Interceptor Chain** (FEAT-10) - `interceptor/` package
 - `LogInterceptor` - Hook interface for pipeline stages
-- `InterceptorChain` - Priority-ordered execution chain
 - `BuiltInInterceptors` - Sampling, level filter, field redaction
 
 **Resilience** (FEAT-11) - `resilience/` package
-- `CircuitBreaker` - State machine (CLOSED→OPEN→HALF_OPEN), exponential backoff with ±20% jitter
-- `RetryPolicy` - Configurable retries with jitter
-- `RateLimiter` - Token bucket algorithm (20K logs/sec), overflow-safe token calculation
+- `CircuitBreaker` - Simple consecutive failure-based breaker (CLOSED/OPEN), N failures triggers fast-fail
+- `RetryPolicy` - Fixed interval retry (simplified, no exponential backoff)
 
 **Metrics** (FEAT-12) - `metrics/` package
 - `SdkMetrics` - Throughput, latency histograms, error rates
 - `MetricsExporter` - Prometheus/JSON format export
 
 ### Security Model
-- **Envelope Encryption**: DEK (AES-256-GCM) + KEK (from KMS), 1-hour DEK rotation with TOCTOU-safe lock
+- **Envelope Encryption**: DEK (AES-256-GCM) + KEK (from LocalKeyManager), 1-hour DEK rotation with TOCTOU-safe lock
 - **Integrity**: SHA-256 Hash Chain with canonical JSON serialization (Jackson `ORDER_MAP_ENTRIES_BY_KEYS`)
 - **Crypto-Shredding**: DEK destruction via Destroyable interface (JVM limitations documented)
-- **PII Masking**: Zero-allocation char array manipulation + auto-detection patterns (message + payload 필드 모두 마스킹)
+- **PII Masking**: Field name-based auto-detection + annotation-based masking (message + payload)
 - **Fallback KEK**: Atomic file creation with POSIX permissions, invalid files auto-deleted
 - **IV Validation**: Encrypted DEK minimum length (60 bytes) validation before decryption
 
 **Note**: MerkleChain provides per-instance integrity only. In distributed deployments, consider a centralized integrity service.
 
+### Annotation-Based PII Masking
+DTO fields can use `@Mask` annotation for declarative PII masking:
+
+```java
+public class EmployeeDto {
+    @Mask(MaskType.RRN)
+    private String residentNumber;    // 123456-1234567 -> 123456-*******
+
+    @Mask(MaskType.PHONE)
+    private String phoneNumber;       // 010-1234-5678 -> 010-****-5678
+
+    @Mask(MaskType.EMAIL)
+    private String email;             // user@example.com -> u***@example.com
+
+    @Mask(MaskType.CREDIT_CARD)
+    private String cardNumber;        // 1234-5678-9012-3456 -> ****-****-****-3456
+
+    @Mask(MaskType.PASSWORD)
+    private String password;          // secret -> ********
+}
+
+// Usage
+PiiMasker masker = new PiiMasker(config);
+Map<String, Object> masked = masker.maskObject(dto);        // Returns Map
+EmployeeDto maskedDto = masker.maskObjectToInstance(dto);   // Returns typed instance
+String maskedValue = masker.maskValue("123456-1234567", MaskType.RRN);  // Direct value masking
+```
+
+**Supported MaskTypes**: RRN, PHONE, EMAIL, CREDIT_CARD, PASSWORD, SSN, NAME, ADDRESS, ACCOUNT_NUMBER
+
+**Emergency Mode**: Use `@Mask(value = MaskType.RRN, emergency = true)` to encrypt original data with RSA public key instead of masking (for later recovery with private key).
+
+**Files**:
+- `api/annotation/Mask.java` - Field/method annotation
+- `api/annotation/MaskType.java` - Masking type enum
+- `core/security/AnnotationMaskingProcessor.java` - Reflection-based processor with metadata caching
+- `core/security/EmergencyEncryptor.java` - RSA-OAEP public key encryption for emergency mode
+- `core/security/LocalKeyManager.java` - Local KEK management with file persistence (chmod 600)
+
+### AOP-Based Audit Context (Who/Whom/Why)
+Automatically capture audit context using `@AuditContext` annotation:
+
+```java
+@AuditContext(
+    why = "급여 정보 조회",
+    whomParam = "employeeId",
+    action = AuditAction.READ,
+    resourceType = "Salary"
+)
+public EmployeeSalaryDto getSalary(String employeeId) {
+    // Automatically captured:
+    // - who: Current authenticated user (from SecurityContext)
+    // - whom: employeeId parameter value
+    // - why: "급여 정보 조회"
+    // - action: READ
+    return repository.findSalary(employeeId);
+}
+
+// SpEL expression support
+@AuditContext(why = "#{#employeeId}의 급여를 #{#reason}으로 조회")
+public EmployeeSalaryDto getSalary(String employeeId, String reason) { ... }
+```
+
+**AuditAction types**: CREATE, READ, UPDATE, DELETE, EXPORT, APPROVE, REJECT, LOGIN, LOGOUT, PERMISSION_CHANGE, OTHER
+
+**Who extraction priority**:
+1. Spring Security SecurityContextHolder
+2. LoggingContext userId baggage
+3. "ANONYMOUS" (fallback)
+
+**Whom auto-detection**: Automatically finds parameters named `employeeId`, `userId`, `targetId`, `id`, `memberId`, `staffId`
+
+**Files**:
+- `api/annotation/AuditContext.java` - Method annotation
+- `api/annotation/AuditAction.java` - Action type enum
+- `api/domain/AuditInfo.java` - Immutable audit info domain
+- `starter/aop/AuditContextAspect.java` - AOP aspect implementation
+- `starter/aop/AuditUserExtractor.java` - User extraction interface
+- `starter/aop/SecurityContextUserExtractor.java` - Spring Security integration
+
 ### Null Safety Patterns
 SDK applies defensive null checks at critical points:
 - `PiiMasker`: null key check + ConcurrentModificationException prevention (ArrayList copy)
 - `EnvelopeEncryption`: payload/encrypted field validation, null entry/message check in encrypt()
-- `MerkleChain`: integrity field null check, ThreadLocal MessageDigest caching
-- `LogProcessor`: null deduplicator defensive check, **예외 시 maskedEntry fallback 보장**
+- `MerkleChain`: integrity field null check
+- `LogProcessor`: **guaranteed masked entry fallback on exception**
 - `LogEntry`: ClassCastException handling for Map casting
 - `LogSerializer`: negative size validation first, compression level 1-22 range check
 
 ### Thread Safety Patterns
-- **AtomicInteger for counters**: Use `AtomicInteger.incrementAndGet()` instead of `volatile int++` (see `LogTransport.consecutiveFailures`)
+- **AtomicInteger for counters**: Use `AtomicInteger.incrementAndGet()` instead of `volatile int++`
 - **CountDownLatch for shutdown**: Explicit batch completion waiting (see `VirtualAsyncAppender.consumerBatchLatch`)
-- **Async completion waiting**: Always call `.join()` on `CompletableFuture` when retry is needed (see `ResilientLogTransport.sendWithRetry()`)
+- **Async completion waiting**: Always call `.join()` on `CompletableFuture` when retry is needed
 
 ### Cache Synchronization
-- `KmsClient`: `CachedKekHolder` inner class for atomic KEK + timestamp reads
+- `LocalKeyManager`: `CachedKekHolder` inner class for atomic KEK + timestamp reads
 - `VirtualAsyncAppender`: `consumerFinished` AtomicBoolean + `CountDownLatch` for reliable shutdown signaling
-- `SemanticDeduplicator`: `cache.invalidateAll()` on close to prevent summary log loss
 
-### Enhanced Components
-- `EnhancedLogProcessor` - Pipeline with interceptors + metrics
-- `ResilientLogTransport` - Circuit breaker + retry + rate limiting + Zstd magic number validation
+### Key Components
+- `ResilientLogTransport` - Circuit breaker + retry + Zstd magic number validation
 - `LoggingContext` - Trace ID with timestamp component for collision prevention
 
 ### SPI (Extension Points) - `spi/` package
 Provider interfaces for customization without modifying core:
 - `EncryptionProvider` - Custom encryption implementations
-- `IntegrityProvider` - Custom integrity verification
 - `TransportProvider` - Custom log transport destinations
-- `MaskingStrategy` - Custom PII masking patterns
-- `LoggerProvider` - Custom logger implementations
+- `MaskingStrategy` - Custom PII masking patterns (String-based)
 
 ## Implementation Guidelines
 
 ### Adding New Masking Patterns
 1. Add pattern to `PiiMasker.initializeStrategies()`
-2. Create `MaskingStrategy` implementation using char array manipulation
-3. Register field name mappings (e.g., "card", "cardNumber" → same strategy)
+2. Create `MaskingStrategy` implementation using String operations
+3. Register field name mappings (e.g., "card", "cardNumber" -> same strategy)
 
 ### Adding New Interceptors
 ```java
@@ -186,17 +258,16 @@ processor.addPreProcessInterceptor("name", LogInterceptor.Priority.HIGH,
     });
 ```
 
-### Circuit Breaker States
-- `CLOSED` - Normal operation, counting failures
-- `OPEN` - Failing fast to fallback, waiting for recovery timeout
-- `HALF_OPEN` - Testing recovery with limited calls
+### Circuit Breaker (Simplified)
+- `CLOSED` - Normal state, counting consecutive failures
+- `OPEN` - Blocked state, auto-reset after timeout
 
-**Note**: `tryAcquirePermission()` acquires lock for atomic state transitions.
+**Behavior**: After N consecutive failures, transitions to OPEN. Auto-resets to CLOSED after configured timeout.
 
 ### Kafka Error Categories
 KafkaProducer classifies errors for proper handling:
 - `AUTHENTICATION` / `AUTHORIZATION` - Non-retryable, requires config fix
-- `NETWORK` / `TIMEOUT` - Retryable with backoff
+- `NETWORK` / `TIMEOUT` - Retryable with fixed delay
 - `RECORD_TOO_LARGE` - Non-retryable, log warning
 - `SERIALIZATION` - Non-retryable, likely bug
 
@@ -208,33 +279,36 @@ secure-hr:
     enabled: true
     mode: ASYNC  # SYNC, ASYNC, FALLBACK
     buffer-size: 8192
-    circuit-breaker-failure-threshold: 3
-    rate-limit-logs-per-second: 20000
+    consumer-threads: 2  # Async consumer thread count
     pii-masking:
       enabled: true
       patterns: ["rrn", "credit_card", "password", "ssn"]
     security:
       encryption-enabled: true
+      integrity-enabled: true
       kms-key-id: "arn:aws:kms:..."
+      emergency-public-key: "Base64-encoded-RSA-public-key"  # For emergency mode
+    audit:
+      enabled: true  # Enable @AuditContext AOP
+      log-enabled: true  # Log audit events
 ```
 
 ## Performance Targets
 
 - **Throughput**: 20,000 logs/sec per instance (4 vCPU)
 - **Latency**: Log call return < 5μs (non-blocking)
-- **Memory**: GC allocation < 1MB/sec under load
+- **Encryption**: Full pipeline (masking + hash + encryption) < 4ms
 
 ## Testing
 
 ### Test Structure
 ```
 secure-log-core/src/
-├── test/java/...                    # Unit tests (Docker 불필요)
-└── integrationTest/java/            # Integration tests (Docker 필요)
+├── test/java/...                    # Unit tests (Docker not required)
+└── integrationTest/java/            # Integration tests (Docker required)
     └── io/.../integration/
         ├── EndToEndTest.java
-        ├── KafkaIntegrationTest.java
-        └── KmsIntegrationTest.java
+        └── KafkaIntegrationTest.java
 ```
 
 ### Commands
@@ -277,18 +351,38 @@ JMH benchmarks available in `secure-log-core/src/test/java/.../benchmark/`:
 - `PiiMaskerBenchmark` - Masking performance
 - `SerializationBenchmark` - JSON/Zstd serialization
 
+### Security Performance Tests
+Encryption performance tests in `secure-log-core/src/test/java/.../performance/`:
+```bash
+# Run encryption performance tests
+./gradlew :secure-log-core:test --tests "EncryptionPerformanceTest"
+```
+**Target**: All encryption operations should complete within 4ms
+
+Test coverage:
+- `EncryptionPerformanceTest` - AES-256-GCM encryption, SHA-256 hash chain, PII masking, full pipeline
+
+Measured metrics:
+- Single call latency (standard/large payload)
+- Average latency over 1000 iterations
+- P50, P99 percentile latencies
+- Full pipeline (masking + hash + encryption) combined latency
+
 ## Package Structure
 
 ```
 io.github.hongjungwan.blackbox
 ├── api/                    # Public API (SecureLogger, LogEntry, LoggingContext)
+│   ├── annotation/         # @Mask, MaskType, @AuditContext, AuditAction
 │   ├── config/             # Configuration classes
 │   ├── context/            # Context propagation
-│   ├── domain/             # Domain models
+│   ├── domain/             # Domain models (LogEntry, AuditInfo)
 │   └── interceptor/        # Interceptor interfaces
 ├── core/
 │   ├── internal/           # Core implementations (LogProcessor, VirtualAsyncAppender, etc.)
-│   ├── resilience/         # CircuitBreaker, RetryPolicy, RateLimiter
-│   └── security/           # EnvelopeEncryption, KmsClient, PiiMasker
-└── spi/                    # Extension points (providers for encryption, masking, transport)
+│   ├── resilience/         # CircuitBreaker, RetryPolicy
+│   └── security/           # EnvelopeEncryption, LocalKeyManager, PiiMasker, EmergencyEncryptor
+├── spi/                    # Extension points (EncryptionProvider, MaskingStrategy, TransportProvider)
+└── starter/                # Spring Boot Starter (secure-log-starter module)
+    └── aop/                # AuditContextAspect, AuditUserExtractor
 ```

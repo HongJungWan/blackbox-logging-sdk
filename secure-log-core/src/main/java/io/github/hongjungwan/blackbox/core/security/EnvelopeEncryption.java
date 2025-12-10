@@ -20,23 +20,7 @@ import java.util.Map;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * Envelope Encryption implementation (DEK + KEK).
- *
- * <p>Key Hierarchy:</p>
- * <ul>
- *   <li>KEK (Key Encryption Key): Master key stored in KMS with rotation support</li>
- *   <li>DEK (Data Encryption Key): Per-block key generated in-memory, encrypted by KEK</li>
- * </ul>
- *
- * <p>Process:</p>
- * <ol>
- *   <li>Generate DEK (AES-256) using SecureRandom</li>
- *   <li>Encrypt log data with DEK (AES-GCM)</li>
- *   <li>Encrypt DEK with KEK from KMS</li>
- *   <li>Store encrypted DEK in log header</li>
- * </ol>
- *
- * <p>Crypto-Shredding: Destroying DEK makes logs permanently unrecoverable.</p>
+ * 봉투 암호화(DEK + KEK) 구현. DEK 1시간 자동 갱신, Crypto-Shredding 지원.
  */
 @Slf4j
 public class EnvelopeEncryption {
@@ -47,44 +31,36 @@ public class EnvelopeEncryption {
     private static final int GCM_IV_LENGTH = 12;
     private static final int KEY_SIZE = 256;
 
-    // Jackson ObjectMapper for JSON serialization (thread-safe, reusable)
+    // JSON 직렬화용 ObjectMapper (스레드 안전, 재사용)
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final TypeReference<Map<String, Object>> MAP_TYPE_REF = new TypeReference<>() {};
 
     private final SecureLogConfig config;
-    private final KmsClient kmsClient;
+    private final LocalKeyManager keyManager;
     private final SecureRandom secureRandom;
     private final ReentrantLock rotationLock = new ReentrantLock();
 
-    // Current DEK - rotated periodically
+    // 현재 DEK (1시간마다 갱신)
     private volatile SecretKey currentDek;
     private volatile long dekCreationTime;
-    private static final long DEK_ROTATION_INTERVAL_MS = 3600_000; // 1 hour
+    private static final long DEK_ROTATION_INTERVAL_MS = 3600_000;
 
     static {
-        // Add BouncyCastle provider for enhanced crypto support
         Security.addProvider(new BouncyCastleProvider());
     }
 
-    public EnvelopeEncryption(SecureLogConfig config, KmsClient kmsClient) {
+    public EnvelopeEncryption(SecureLogConfig config, LocalKeyManager keyManager) {
         this.config = config;
-        this.kmsClient = kmsClient;
+        this.keyManager = keyManager;
         this.secureRandom = new SecureRandom();
         this.currentDek = generateDek();
         this.dekCreationTime = System.currentTimeMillis();
     }
 
     /**
-     * Encrypt log entry using envelope encryption.
-     *
-     * FIX P3 #21: Add input validation for null entry and null message.
-     *
-     * @param entry the log entry to encrypt
-     * @return a new LogEntry with encrypted payload and encrypted DEK
-     * @throws EncryptionException if encryption fails or input is invalid
+     * 로그 엔트리 암호화. payload를 DEK로 암호화하고, DEK는 KEK로 암호화.
      */
     public LogEntry encrypt(LogEntry entry) {
-        // FIX P3 #21: Validate input
         if (entry == null) {
             throw new EncryptionException("Cannot encrypt null entry");
         }
@@ -93,20 +69,13 @@ public class EnvelopeEncryption {
         }
 
         try {
-            // Check if DEK needs rotation
             rotateDekIfNeeded();
 
-            // Get current DEK
             SecretKey dek = currentDek;
-
-            // Encrypt payload with DEK
             String payloadJson = serializePayload(entry.getPayload());
             byte[] encryptedPayload = encryptWithDek(payloadJson.getBytes(), dek);
-
-            // Encrypt DEK with KEK from KMS
             byte[] encryptedDek = encryptDekWithKek(dek);
 
-            // Build encrypted log entry
             return LogEntry.builder()
                     .timestamp(entry.getTimestamp())
                     .level(entry.getLevel())
@@ -127,23 +96,17 @@ public class EnvelopeEncryption {
         }
     }
 
-    /**
-     * Encrypt data with DEK using AES-GCM.
-     */
+    /** AES-GCM으로 데이터 암호화. IV + 암호문 반환. */
     private byte[] encryptWithDek(byte[] data, SecretKey dek) throws Exception {
-        // Generate random IV
         byte[] iv = new byte[GCM_IV_LENGTH];
         secureRandom.nextBytes(iv);
 
-        // Initialize cipher
         Cipher cipher = Cipher.getInstance(TRANSFORMATION);
         GCMParameterSpec gcmSpec = new GCMParameterSpec(GCM_TAG_LENGTH, iv);
         cipher.init(Cipher.ENCRYPT_MODE, dek, gcmSpec);
 
-        // Encrypt
         byte[] ciphertext = cipher.doFinal(data);
 
-        // Combine IV + ciphertext
         byte[] result = new byte[GCM_IV_LENGTH + ciphertext.length];
         System.arraycopy(iv, 0, result, 0, GCM_IV_LENGTH);
         System.arraycopy(ciphertext, 0, result, GCM_IV_LENGTH, ciphertext.length);
@@ -151,14 +114,10 @@ public class EnvelopeEncryption {
         return result;
     }
 
-    /**
-     * Encrypt DEK with KEK from KMS.
-     */
+    /** KEK로 DEK 암호화. */
     private byte[] encryptDekWithKek(SecretKey dek) throws Exception {
-        // Get KEK from KMS
-        SecretKey kek = kmsClient.getKek();
+        SecretKey kek = keyManager.getKek();
 
-        // Encrypt DEK
         Cipher cipher = Cipher.getInstance(TRANSFORMATION);
         byte[] iv = new byte[GCM_IV_LENGTH];
         secureRandom.nextBytes(iv);
@@ -168,7 +127,6 @@ public class EnvelopeEncryption {
 
         byte[] encryptedDek = cipher.doFinal(dek.getEncoded());
 
-        // Combine IV + encrypted DEK
         byte[] result = new byte[GCM_IV_LENGTH + encryptedDek.length];
         System.arraycopy(iv, 0, result, 0, GCM_IV_LENGTH);
         System.arraycopy(encryptedDek, 0, result, GCM_IV_LENGTH, encryptedDek.length);
@@ -176,9 +134,7 @@ public class EnvelopeEncryption {
         return result;
     }
 
-    /**
-     * Generate new DEK using SecureRandom.
-     */
+    /** SecureRandom으로 새 DEK 생성. */
     private SecretKey generateDek() {
         try {
             KeyGenerator keyGen = KeyGenerator.getInstance(ALGORITHM);
@@ -190,24 +146,17 @@ public class EnvelopeEncryption {
     }
 
     /**
-     * Rotate DEK if rotation interval has passed.
-     * CRITICAL: Uses ReentrantLock instead of synchronized (Virtual Thread compatible)
-     *
-     * FIX P0 #1: Move the initial time check INSIDE the lock to prevent TOCTOU race condition.
-     * Previously, the volatile dekCreationTime was read BEFORE acquiring the lock, which could
-     * allow multiple threads to pass the initial check and queue up for rotation.
+     * DEK 갱신 필요 시 수행. ReentrantLock 사용 (Virtual Thread 호환).
+     * TOCTOU 방지를 위해 시간 체크를 락 내부에서 수행.
      */
     private void rotateDekIfNeeded() {
         rotationLock.lock();
         try {
             long now = System.currentTimeMillis();
             if (now - dekCreationTime > DEK_ROTATION_INTERVAL_MS) {
-                // Crypto-shredding: destroy old DEK
                 SecretKey oldDek = currentDek;
                 currentDek = generateDek();
                 dekCreationTime = now;
-
-                // Clear old DEK from memory (best effort)
                 destroyKey(oldDek);
 
                 log.info("DEK rotated successfully");
@@ -218,27 +167,8 @@ public class EnvelopeEncryption {
     }
 
     /**
-     * Best-effort key destruction for crypto-shredding.
-     *
-     * <h2>JVM Limitation Warning</h2>
-     * <p>This method performs best-effort key destruction, but has inherent JVM limitations:</p>
-     * <ul>
-     *   <li>{@code key.getEncoded()} returns a <em>copy</em> of the key bytes, not the original.
-     *       Zeroing this copy does not affect the key material stored inside the SecretKey object.</li>
-     *   <li>The actual key material in {@code SecretKeySpec} is stored in a private final byte array
-     *       that cannot be directly accessed or zeroed without reflection.</li>
-     *   <li>Even with reflection, the JVM may have cached copies of the key in various places.</li>
-     * </ul>
-     *
-     * <h2>Mitigation Strategies</h2>
-     * <ul>
-     *   <li>The key is dereferenced and will be garbage collected, eventually overwritten</li>
-     *   <li>For true crypto-shredding, rely on KMS-managed DEK destruction</li>
-     *   <li>The encrypted DEK stored in logs becomes unrecoverable once the KEK is rotated/destroyed in KMS</li>
-     *   <li>For high-security requirements, consider using HSM-backed keys or off-heap memory</li>
-     * </ul>
-     *
-     * @param key the secret key to destroy
+     * 키 삭제 (best-effort). JVM 한계로 완전 삭제 불가.
+     * 진정한 Crypto-Shredding은 KMS의 KEK 삭제에 의존.
      */
     private void destroyKey(SecretKey key) {
         if (key == null) {
@@ -246,7 +176,6 @@ public class EnvelopeEncryption {
         }
 
         try {
-            // Try to use the Destroyable interface if the key supports it
             if (key instanceof javax.security.auth.Destroyable) {
                 javax.security.auth.Destroyable destroyable = (javax.security.auth.Destroyable) key;
                 if (!destroyable.isDestroyed()) {
@@ -255,31 +184,23 @@ public class EnvelopeEncryption {
                         log.debug("Key destroyed via Destroyable interface");
                         return;
                     } catch (javax.security.auth.DestroyFailedException e) {
-                        // SecretKeySpec.destroy() throws DestroyFailedException by default
-                        // Fall through to best-effort approach
                         log.trace("Destroyable.destroy() failed, using best-effort approach");
                     }
                 }
             }
 
-            // Best-effort: zero out the copy of key bytes
-            // NOTE: This zeros a copy, not the original key material (see Javadoc above)
+            // 키 바이트 복사본 제로화 (best-effort, 원본 불변)
             byte[] keyBytes = key.getEncoded();
             if (keyBytes != null) {
                 java.util.Arrays.fill(keyBytes, (byte) 0);
             }
-
-            // The key object will be garbage collected and eventually overwritten
-            // For stronger guarantees, use KMS key rotation to invalidate encrypted DEKs
 
         } catch (Exception e) {
             log.warn("Failed to destroy key: {}", e.getMessage());
         }
     }
 
-    /**
-     * Serialize payload to JSON string using Jackson.
-     */
+    /** payload를 JSON 문자열로 직렬화. */
     private String serializePayload(Map<String, Object> payload) {
         if (payload == null || payload.isEmpty()) {
             return "{}";
@@ -293,33 +214,24 @@ public class EnvelopeEncryption {
     }
 
     /**
-     * Decrypt log entry (for authorized access only).
-     *
-     * FIX P1 #11: Add validation of encryptedDek field before decryption.
-     *
-     * @param encryptedEntry the encrypted log entry to decrypt
-     * @return a new LogEntry with decrypted payload
-     * @throws EncryptionException if decryption fails or encrypted DEK is invalid
+     * 암호화된 로그 엔트리 복호화. 권한 있는 접근만 허용.
      */
     public LogEntry decrypt(LogEntry encryptedEntry) {
         try {
-            // FIX P1 #11: Validate encryptedDek before decryption
             String encryptedDekStr = encryptedEntry.getEncryptedDek();
             if (encryptedDekStr == null || encryptedDekStr.isEmpty()) {
                 throw new EncryptionException("Missing encrypted DEK");
             }
 
-            // Decrypt DEK with KEK
             byte[] encryptedDek = Base64.getDecoder().decode(encryptedDekStr);
 
-            // FIX P1 #11: Validate minimum length: IV (12 bytes) + encrypted key (32+ bytes) + auth tag (16 bytes) = minimum 60 bytes
+            // IV(12) + 암호화 키(32+) + 태그(16) = 60 bytes
             if (encryptedDek.length < 60) {
                 throw new EncryptionException("Invalid encrypted DEK: too short (possible corruption)");
             }
 
             SecretKey dek = decryptDekWithKek(encryptedDek);
 
-            // Decrypt payload with DEK
             Map<String, Object> payload = encryptedEntry.getPayload();
             if (payload == null) {
                 throw new EncryptionException("Encrypted entry has no payload", null);
@@ -332,7 +244,6 @@ public class EnvelopeEncryption {
             byte[] encryptedPayload = Base64.getDecoder().decode(encryptedPayloadStr);
             byte[] decryptedPayload = decryptWithDek(encryptedPayload, dek);
 
-            // Reconstruct log entry
             return LogEntry.builder()
                     .timestamp(encryptedEntry.getTimestamp())
                     .level(encryptedEntry.getLevel())
@@ -352,16 +263,15 @@ public class EnvelopeEncryption {
         }
     }
 
+    /** KEK로 암호화된 DEK 복호화. */
     private SecretKey decryptDekWithKek(byte[] encryptedDek) throws Exception {
-        SecretKey kek = kmsClient.getKek();
+        SecretKey kek = keyManager.getKek();
 
-        // Extract IV and ciphertext
         byte[] iv = new byte[GCM_IV_LENGTH];
         byte[] ciphertext = new byte[encryptedDek.length - GCM_IV_LENGTH];
         System.arraycopy(encryptedDek, 0, iv, 0, GCM_IV_LENGTH);
         System.arraycopy(encryptedDek, GCM_IV_LENGTH, ciphertext, 0, ciphertext.length);
 
-        // Decrypt
         Cipher cipher = Cipher.getInstance(TRANSFORMATION);
         GCMParameterSpec gcmSpec = new GCMParameterSpec(GCM_TAG_LENGTH, iv);
         cipher.init(Cipher.DECRYPT_MODE, kek, gcmSpec);
@@ -370,14 +280,13 @@ public class EnvelopeEncryption {
         return new SecretKeySpec(dekBytes, ALGORITHM);
     }
 
+    /** DEK로 데이터 복호화. */
     private byte[] decryptWithDek(byte[] encryptedData, SecretKey dek) throws Exception {
-        // Extract IV and ciphertext
         byte[] iv = new byte[GCM_IV_LENGTH];
         byte[] ciphertext = new byte[encryptedData.length - GCM_IV_LENGTH];
         System.arraycopy(encryptedData, 0, iv, 0, GCM_IV_LENGTH);
         System.arraycopy(encryptedData, GCM_IV_LENGTH, ciphertext, 0, ciphertext.length);
 
-        // Decrypt
         Cipher cipher = Cipher.getInstance(TRANSFORMATION);
         GCMParameterSpec gcmSpec = new GCMParameterSpec(GCM_TAG_LENGTH, iv);
         cipher.init(Cipher.DECRYPT_MODE, dek, gcmSpec);
@@ -385,9 +294,7 @@ public class EnvelopeEncryption {
         return cipher.doFinal(ciphertext);
     }
 
-    /**
-     * Deserialize JSON string to payload Map using Jackson.
-     */
+    /** JSON 문자열을 payload Map으로 역직렬화. */
     private Map<String, Object> deserializePayload(String json) {
         if (json == null || json.isBlank() || "{}".equals(json)) {
             return Map.of();

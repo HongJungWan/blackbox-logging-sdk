@@ -3,13 +3,12 @@ package io.github.hongjungwan.blackbox.core.processor;
 import io.github.hongjungwan.blackbox.api.config.SecureLogConfig;
 import io.github.hongjungwan.blackbox.api.domain.LogEntry;
 import io.github.hongjungwan.blackbox.core.internal.LogProcessor;
-import io.github.hongjungwan.blackbox.core.internal.SemanticDeduplicator;
 import io.github.hongjungwan.blackbox.core.internal.MerkleChain;
 import io.github.hongjungwan.blackbox.core.internal.LogSerializer;
 import io.github.hongjungwan.blackbox.core.internal.ResilientLogTransport;
 import io.github.hongjungwan.blackbox.core.security.PiiMasker;
 import io.github.hongjungwan.blackbox.core.security.EnvelopeEncryption;
-import io.github.hongjungwan.blackbox.core.security.KmsClient;
+import io.github.hongjungwan.blackbox.core.security.LocalKeyManager;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mock;
@@ -18,7 +17,6 @@ import org.mockito.MockitoAnnotations;
 import java.nio.file.Path;
 import java.util.Map;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
@@ -42,17 +40,14 @@ class LogProcessorTest {
         config = SecureLogConfig.builder()
                 .piiMaskingEnabled(true)
                 .encryptionEnabled(true)
-                .deduplicationEnabled(true)
                 .integrityEnabled(true)
-                .kmsFallbackEnabled(true)
                 .fallbackDirectory(tempDir.toString())
                 .build();
 
         PiiMasker piiMasker = new PiiMasker(config);
-        KmsClient kmsClient = new KmsClient(config);
-        EnvelopeEncryption encryption = new EnvelopeEncryption(config, kmsClient);
+        LocalKeyManager keyManager = new LocalKeyManager(config);
+        EnvelopeEncryption encryption = new EnvelopeEncryption(config, keyManager);
         MerkleChain merkleChain = new MerkleChain();
-        SemanticDeduplicator deduplicator = new SemanticDeduplicator(config);
         LogSerializer serializer = new LogSerializer();
 
         processor = new LogProcessor(
@@ -60,7 +55,6 @@ class LogProcessorTest {
                 piiMasker,
                 encryption,
                 merkleChain,
-                deduplicator,
                 serializer,
                 mockTransport
         );
@@ -113,30 +107,6 @@ class LogProcessorTest {
     }
 
     @Nested
-    @DisplayName("중복 제거")
-    class DeduplicationTests {
-
-        @Test
-        @DisplayName("중복 로그는 전송하지 않아야 한다")
-        void shouldNotSendDuplicateLogs() {
-            // given
-            LogEntry entry = LogEntry.builder()
-                    .timestamp(System.currentTimeMillis())
-                    .level("INFO")
-                    .message("Duplicate message")
-                    .build();
-
-            // when
-            processor.process(entry);
-            processor.process(entry);
-            processor.process(entry);
-
-            // then - only first should be sent
-            verify(mockTransport, times(1)).send(any(byte[].class));
-        }
-    }
-
-    @Nested
     @DisplayName("기능 비활성화")
     class FeatureDisablingTests {
 
@@ -147,18 +117,15 @@ class LogProcessorTest {
             SecureLogConfig disabledConfig = SecureLogConfig.builder()
                     .piiMaskingEnabled(false)
                     .encryptionEnabled(false)
-                    .deduplicationEnabled(false)
                     .integrityEnabled(false)
-                    .kmsFallbackEnabled(true)
                     .fallbackDirectory(tempDir.toString())
                     .build();
 
             LogProcessor minimalProcessor = new LogProcessor(
                     disabledConfig,
                     new PiiMasker(disabledConfig),
-                    new EnvelopeEncryption(disabledConfig, new KmsClient(disabledConfig)),
+                    new EnvelopeEncryption(disabledConfig, new LocalKeyManager(disabledConfig)),
                     new MerkleChain(),
-                    new SemanticDeduplicator(disabledConfig),
                     new LogSerializer(),
                     mockTransport
             );
@@ -184,18 +151,15 @@ class LogProcessorTest {
             SecureLogConfig disabledConfig = SecureLogConfig.builder()
                     .piiMaskingEnabled(false)
                     .encryptionEnabled(false)
-                    .deduplicationEnabled(false)
                     .integrityEnabled(false)
-                    .kmsFallbackEnabled(true)
                     .fallbackDirectory(tempDir.toString())
                     .build();
 
             LogProcessor minimalProcessor = new LogProcessor(
                     disabledConfig,
                     new PiiMasker(disabledConfig),
-                    new EnvelopeEncryption(disabledConfig, new KmsClient(disabledConfig)),
+                    new EnvelopeEncryption(disabledConfig, new LocalKeyManager(disabledConfig)),
                     new MerkleChain(),
-                    new SemanticDeduplicator(disabledConfig),
                     new LogSerializer(),
                     mockTransport
             );

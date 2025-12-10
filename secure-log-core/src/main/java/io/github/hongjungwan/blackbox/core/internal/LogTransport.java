@@ -16,10 +16,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * FEAT-05: Log Transport with Circuit Breaker Fallback
- *
- * Primary: Send to Kafka
- * Fallback: Write to local encrypted file when Kafka is unavailable
+ * 로그 전송 (Kafka primary + 파일 Fallback). 단순 Circuit Breaker 내장.
  */
 @Slf4j
 public class LogTransport {
@@ -29,7 +26,6 @@ public class LogTransport {
     private final LogSerializer serializer;
     private final Path fallbackDirectory;
 
-    // Circuit breaker state
     private final AtomicBoolean circuitOpen = new AtomicBoolean(false);
     private final AtomicInteger consecutiveFailures = new AtomicInteger(0);
     private static final int FAILURE_THRESHOLD = 3;
@@ -40,7 +36,6 @@ public class LogTransport {
         this.kafkaProducer = initializeKafkaProducer();
         this.fallbackDirectory = Paths.get(config.getFallbackDirectory());
 
-        // Ensure fallback directory exists
         try {
             Files.createDirectories(fallbackDirectory);
         } catch (IOException e) {
@@ -55,26 +50,19 @@ public class LogTransport {
         return null;
     }
 
-    /**
-     * Send log data to Kafka (with fallback)
-     */
     public void send(byte[] data) {
-        // Check circuit breaker
         if (circuitOpen.get()) {
             sendToFallback(data);
             return;
         }
 
-        // Try primary transport (Kafka)
         try {
             if (kafkaProducer != null) {
                 kafkaProducer.send(config.getKafkaTopic(), data);
                 onSendSuccess();
             } else {
-                // No Kafka configured, use fallback
                 sendToFallback(data);
             }
-
         } catch (Exception e) {
             log.warn("Failed to send to Kafka, using fallback", e);
             onSendFailure();
@@ -82,9 +70,6 @@ public class LogTransport {
         }
     }
 
-    /**
-     * Send to fallback file storage
-     */
     public void sendToFallback(byte[] data) {
         try {
             String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss-SSS"));
@@ -99,17 +84,11 @@ public class LogTransport {
         }
     }
 
-    /**
-     * Send LogEntry to fallback (alternative signature)
-     */
     public void sendToFallback(LogEntry entry) {
         byte[] data = serializer.serialize(entry);
         sendToFallback(data);
     }
 
-    /**
-     * Handle successful send - reset circuit breaker
-     */
     private void onSendSuccess() {
         if (consecutiveFailures.get() > 0) {
             consecutiveFailures.set(0);
@@ -119,9 +98,6 @@ public class LogTransport {
         }
     }
 
-    /**
-     * Handle send failure - open circuit breaker if threshold reached
-     */
     private void onSendFailure() {
         int failures = consecutiveFailures.incrementAndGet();
 
@@ -132,9 +108,7 @@ public class LogTransport {
         }
     }
 
-    /**
-     * Replay logs from fallback when Kafka recovers
-     */
+    /** Fallback 로그 재전송 */
     public void replayFallbackLogs() {
         if (kafkaProducer == null || circuitOpen.get()) {
             log.warn("Cannot replay - Kafka not available");
@@ -155,11 +129,7 @@ public class LogTransport {
     private void replayFile(Path file) {
         try {
             byte[] data = Files.readAllBytes(file);
-
-            // Send to Kafka
             kafkaProducer.send(config.getKafkaTopic(), data);
-
-            // Secure delete after successful replay
             secureDelete(file);
 
             log.info("Replayed and deleted fallback file: " + file);
@@ -169,13 +139,9 @@ public class LogTransport {
         }
     }
 
-    /**
-     * Secure delete: overwrite then delete
-     * Uses chunked approach to handle files > 2GB without integer overflow
-     */
+    /** 안전 삭제 (덮어쓰기 후 삭제) */
     private void secureDelete(Path file) throws IOException {
         long fileSize = Files.size(file);
-        // Use fixed buffer size to avoid integer overflow for large files
         final int BUFFER_SIZE = 8192;
         byte[] zeros = new byte[BUFFER_SIZE];
 
@@ -189,7 +155,6 @@ public class LogTransport {
             }
         }
 
-        // Delete file
         Files.delete(file);
     }
 

@@ -4,57 +4,29 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.time.Duration;
 import java.util.Set;
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.LockSupport;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 /**
- * FEAT-11: Retry Policy with Exponential Backoff (Sentry Pattern)
- *
- * Configurable retry policy supporting:
- * - Exponential backoff with jitter
- * - Retry budgets
- * - Exception filtering
- * - Custom backoff strategies
- *
- * Based on:
- * - Sentry SDK retry logic
- * - AWS SDK retry policies
- * - Resilience4j patterns
- *
- * @see <a href="https://github.com/getsentry/sentry-java">Sentry Java</a>
- * @see <a href="https://github.com/aws/aws-sdk-java-v2">AWS SDK Java v2</a>
+ * 고정 간격 재시도 정책
  */
 @Slf4j
 public final class RetryPolicy {
 
     private final int maxAttempts;
-    private final Duration initialDelay;
-    private final Duration maxDelay;
-    private final double multiplier;
-    private final double jitterFactor;
+    private final long delayMs;
     private final Predicate<Exception> retryPredicate;
     private final Set<Class<? extends Exception>> retryableExceptions;
 
     private RetryPolicy(Builder builder) {
         this.maxAttempts = builder.maxAttempts;
-        this.initialDelay = builder.initialDelay;
-        this.maxDelay = builder.maxDelay;
-        this.multiplier = builder.multiplier;
-        this.jitterFactor = builder.jitterFactor;
+        this.delayMs = builder.delayMs;
         this.retryPredicate = builder.retryPredicate;
         this.retryableExceptions = builder.retryableExceptions;
     }
 
     /**
-     * Execute an operation with retry according to the configured policy.
-     *
-     * @param <T> the return type of the operation
-     * @param operation the operation to execute
-     * @return the result of the operation if successful
-     * @throws RetryExhaustedException if all retry attempts are exhausted
+     * 재시도 정책에 따라 작업 실행
      */
     public <T> T execute(Supplier<T> operation) throws RetryExhaustedException {
         Exception lastException = null;
@@ -63,7 +35,6 @@ public final class RetryPolicy {
         while (attempt < maxAttempts) {
             try {
                 return operation.get();
-
             } catch (Exception e) {
                 lastException = e;
                 attempt++;
@@ -73,9 +44,8 @@ public final class RetryPolicy {
                 }
 
                 if (attempt < maxAttempts) {
-                    Duration delay = calculateDelay(attempt);
-                    log.debug("Retry attempt {}/{} after {}ms", attempt, maxAttempts, delay.toMillis());
-                    sleep(delay);
+                    log.debug("Retry attempt {}/{} after {}ms", attempt, maxAttempts, delayMs);
+                    sleep(delayMs);
                 }
             }
         }
@@ -87,7 +57,7 @@ public final class RetryPolicy {
     }
 
     /**
-     * Execute runnable with retry
+     * Runnable 실행
      */
     public void execute(Runnable operation) throws RetryExhaustedException {
         execute(() -> {
@@ -97,23 +67,10 @@ public final class RetryPolicy {
     }
 
     /**
-     * Calculate delay with exponential backoff and jitter
+     * 딜레이 계산 (API 호환 - 고정 딜레이 반환)
      */
     Duration calculateDelay(int attempt) {
-        // Exponential backoff: initial * multiplier^(attempt-1)
-        double exponentialDelay = initialDelay.toMillis() * Math.pow(multiplier, attempt - 1);
-
-        // Cap at max delay
-        long cappedDelay = Math.min((long) exponentialDelay, maxDelay.toMillis());
-
-        // Add jitter: random value between [-jitter%, +jitter%]
-        if (jitterFactor > 0) {
-            double jitter = cappedDelay * jitterFactor;
-            long jitterOffset = (long) (ThreadLocalRandom.current().nextDouble(-jitter, jitter));
-            cappedDelay = Math.max(1, cappedDelay + jitterOffset);
-        }
-
-        return Duration.ofMillis(cappedDelay);
+        return Duration.ofMillis(delayMs);
     }
 
     private boolean shouldRetry(Exception e, int attempt) {
@@ -121,62 +78,48 @@ public final class RetryPolicy {
             return false;
         }
 
-        // Check custom predicate first
+        // 커스텀 predicate 우선
         if (retryPredicate != null) {
             return retryPredicate.test(e);
         }
 
-        // Check exception types
+        // 지정된 예외 타입 확인
         if (!retryableExceptions.isEmpty()) {
             return retryableExceptions.stream()
                     .anyMatch(clazz -> clazz.isInstance(e));
         }
 
-        // Default: retry all exceptions
+        // 기본: 모든 예외 재시도
         return true;
     }
 
-    private void sleep(Duration duration) {
-        // Use LockSupport for Virtual Thread compatibility
-        // Use duration.toNanos() directly to avoid precision loss
-        LockSupport.parkNanos(duration.toNanos());
+    private void sleep(long ms) {
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     /**
-     * Create a default retry policy (3 attempts, 100ms initial delay, 2x multiplier).
-     *
-     * @return a new RetryPolicy with default settings
+     * 기본 정책 생성 (3회 재시도, 100ms 간격)
      */
     public static RetryPolicy defaults() {
         return builder().build();
     }
 
-    /**
-     * Create a new builder for constructing a RetryPolicy.
-     *
-     * @return a new Builder instance
-     */
     public static Builder builder() {
         return new Builder();
     }
 
-    /**
-     * Builder for RetryPolicy
-     */
     public static class Builder {
         private int maxAttempts = 3;
-        private Duration initialDelay = Duration.ofMillis(100);
-        private Duration maxDelay = Duration.ofSeconds(30);
-        private double multiplier = 2.0;
-        private double jitterFactor = 0.25; // ±25%
+        private long delayMs = 100;
         private Predicate<Exception> retryPredicate;
         private Set<Class<? extends Exception>> retryableExceptions = Set.of();
 
         /**
-         * Sets the maximum number of retry attempts.
-         *
-         * @param maxAttempts the maximum attempts including initial attempt (default: 3)
-         * @return this builder for method chaining
+         * 최대 재시도 횟수 (기본: 3)
          */
         public Builder maxAttempts(int maxAttempts) {
             this.maxAttempts = maxAttempts;
@@ -184,54 +127,51 @@ public final class RetryPolicy {
         }
 
         /**
-         * Sets the initial delay before the first retry.
-         *
-         * @param initialDelay the initial delay duration (default: 100ms)
-         * @return this builder for method chaining
+         * 고정 딜레이 설정 (API 호환)
          */
         public Builder initialDelay(Duration initialDelay) {
-            this.initialDelay = initialDelay;
+            this.delayMs = initialDelay.toMillis();
             return this;
         }
 
         /**
-         * Sets the maximum delay between retries.
-         *
-         * @param maxDelay the maximum delay duration (default: 30 seconds)
-         * @return this builder for method chaining
+         * 고정 딜레이 설정
+         */
+        public Builder fixedDelay(Duration delay) {
+            this.delayMs = delay.toMillis();
+            return this;
+        }
+
+        /**
+         * API 호환용 - 무시됨
          */
         public Builder maxDelay(Duration maxDelay) {
-            this.maxDelay = maxDelay;
             return this;
         }
 
         /**
-         * Sets the exponential backoff multiplier.
-         *
-         * @param multiplier the delay multiplier for each retry (default: 2.0)
-         * @return this builder for method chaining
+         * API 호환용 - 무시됨
          */
         public Builder multiplier(double multiplier) {
-            this.multiplier = multiplier;
             return this;
         }
 
         /**
-         * Sets the jitter factor for randomizing delays.
-         *
-         * @param jitterFactor the jitter percentage as decimal (default: 0.25 for 25%)
-         * @return this builder for method chaining
+         * API 호환용 - 무시됨
          */
         public Builder jitterFactor(double jitterFactor) {
-            this.jitterFactor = jitterFactor;
             return this;
         }
 
         /**
-         * Sets a custom predicate to determine if an exception is retryable.
-         *
-         * @param predicate the predicate that returns true for retryable exceptions
-         * @return this builder for method chaining
+         * API 호환용 - 무시됨
+         */
+        public Builder noJitter() {
+            return this;
+        }
+
+        /**
+         * 재시도 조건 설정
          */
         public Builder retryOn(Predicate<Exception> predicate) {
             this.retryPredicate = predicate;
@@ -239,10 +179,7 @@ public final class RetryPolicy {
         }
 
         /**
-         * Sets specific exception types that should trigger a retry.
-         *
-         * @param exceptions the exception classes to retry on
-         * @return this builder for method chaining
+         * 재시도할 예외 클래스 설정
          */
         @SafeVarargs
         public final Builder retryOnExceptions(Class<? extends Exception>... exceptions) {
@@ -250,40 +187,13 @@ public final class RetryPolicy {
             return this;
         }
 
-        /**
-         * Disable jitter (useful for testing with predictable delays).
-         *
-         * @return this builder for method chaining
-         */
-        public Builder noJitter() {
-            this.jitterFactor = 0;
-            return this;
-        }
-
-        /**
-         * Use fixed delay without exponential backoff.
-         *
-         * @param delay the fixed delay between retries
-         * @return this builder for method chaining
-         */
-        public Builder fixedDelay(Duration delay) {
-            this.initialDelay = delay;
-            this.multiplier = 1.0;
-            return this;
-        }
-
-        /**
-         * Builds the RetryPolicy instance.
-         *
-         * @return a new RetryPolicy with the configured settings
-         */
         public RetryPolicy build() {
             return new RetryPolicy(this);
         }
     }
 
     /**
-     * Exception thrown when retries are exhausted
+     * 재시도 소진 시 발생하는 예외
      */
     public static class RetryExhaustedException extends RuntimeException {
         public RetryExhaustedException(String message, Throwable cause) {

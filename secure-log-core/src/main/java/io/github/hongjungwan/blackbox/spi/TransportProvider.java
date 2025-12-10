@@ -6,57 +6,17 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * SPI for log transport backends.
- *
- * <p>Implement this interface to support different log destinations
- * (Kafka, Elasticsearch, CloudWatch, etc.).</p>
- *
- * <h2>Built-in Transports:</h2>
- * <ul>
- *   <li>KafkaTransport: Apache Kafka with Zstd compression</li>
- *   <li>FallbackTransport: Local disk with secure deletion</li>
- * </ul>
- *
- * <h2>Implementation Example:</h2>
- * <pre>{@code
- * public class ElasticsearchTransport implements TransportProvider {
- *     private final RestHighLevelClient client;
- *
- *     @Override
- *     public CompletableFuture<Void> send(LogEntry entry) {
- *         IndexRequest request = new IndexRequest("logs")
- *                 .source(serialize(entry));
- *         return CompletableFuture.runAsync(() ->
- *             client.index(request, RequestOptions.DEFAULT));
- *     }
- * }
- * }</pre>
- *
- * @since 8.0.0
+ * 로그 전송 백엔드 SPI. Kafka, Elasticsearch 등 다양한 목적지 지원 시 구현.
  */
 public interface TransportProvider {
 
-    /**
-     * Get the transport name.
-     *
-     * @return the unique name identifying this transport provider
-     */
+    /** Transport 식별자 반환 */
     String getName();
 
-    /**
-     * Send a single log entry asynchronously.
-     *
-     * @param entry The log entry to send
-     * @return A future that completes when the send is done
-     */
+    /** 단일 로그 엔트리 비동기 전송 */
     CompletableFuture<Void> send(LogEntry entry);
 
-    /**
-     * Send a batch of log entries.
-     *
-     * @param entries The log entries to send
-     * @return A future that completes when all entries are sent
-     */
+    /** 배치 전송 (기본: 개별 send 호출) */
     default CompletableFuture<Void> sendBatch(List<LogEntry> entries) {
         CompletableFuture<?>[] futures = entries.stream()
                 .map(this::send)
@@ -64,33 +24,21 @@ public interface TransportProvider {
         return CompletableFuture.allOf(futures);
     }
 
-    /**
-     * Check if this transport is healthy.
-     *
-     * @return true if the transport is ready to send log entries
-     */
+    /** Transport 상태 확인 */
     boolean isHealthy();
 
-    /**
-     * Flush any pending entries to the destination.
-     */
+    /** 대기 중인 엔트리 플러시 */
     void flush();
 
-    /**
-     * Shutdown the transport gracefully, flushing pending entries.
-     */
+    /** 종료 (플러시 후 리소스 해제) */
     void close();
 
-    /**
-     * Get transport metrics.
-     */
+    /** Transport 메트릭 조회 */
     default TransportMetrics getMetrics() {
         return TransportMetrics.EMPTY;
     }
 
-    /**
-     * Transport metrics interface.
-     */
+    /** Transport 메트릭 */
     interface TransportMetrics {
         long sentCount();
         long failedCount();

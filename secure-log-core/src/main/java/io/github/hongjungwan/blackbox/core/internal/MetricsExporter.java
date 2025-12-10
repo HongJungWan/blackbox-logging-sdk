@@ -15,15 +15,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 /**
- * FEAT-12: Metrics Exporter (Prometheus/JMX/JSON formats)
- *
- * Exports SDK metrics in various formats for observability integration.
- *
- * Supported formats:
- * - Prometheus text format
- * - JSON
- * - JMX (via MXBean registration)
- * - Custom exporters via SPI
+ * 메트릭 내보내기 (Prometheus/JSON 포맷). 주기적 내보내기 지원.
  */
 @Slf4j
 public final class MetricsExporter {
@@ -42,14 +34,11 @@ public final class MetricsExporter {
                 .enable(SerializationFeature.INDENT_OUTPUT);
     }
 
-    /**
-     * Export metrics in Prometheus text format
-     */
+    /** Prometheus 텍스트 포맷으로 내보내기 */
     public String toPrometheus() {
         SdkMetrics.Snapshot snapshot = metrics.getSnapshot();
         StringBuilder sb = new StringBuilder();
 
-        // Help and type declarations
         sb.append("# HELP secure_hr_logs_processed_total Total number of logs processed\n");
         sb.append("# TYPE secure_hr_logs_processed_total counter\n");
         sb.append(String.format("secure_hr_logs_processed_total %d\n", snapshot.logsProcessed()));
@@ -70,30 +59,25 @@ public final class MetricsExporter {
         sb.append("# TYPE secure_hr_bytes_sent_total counter\n");
         sb.append(String.format("secure_hr_bytes_sent_total %d\n", snapshot.bytesSent()));
 
-        // Throughput gauge
         sb.append("# HELP secure_hr_throughput_logs_per_second Current throughput\n");
         sb.append("# TYPE secure_hr_throughput_logs_per_second gauge\n");
         sb.append(String.format("secure_hr_throughput_logs_per_second %.2f\n", snapshot.throughputPerSecond()));
 
-        // Error rate gauge
         sb.append("# HELP secure_hr_error_rate Current error rate\n");
         sb.append("# TYPE secure_hr_error_rate gauge\n");
         sb.append(String.format("secure_hr_error_rate %.4f\n", snapshot.errorRate()));
 
-        // Latency histograms
         appendLatencyMetrics(sb, "processing", snapshot.processingLatency());
         appendLatencyMetrics(sb, "transport", snapshot.transportLatency());
         appendLatencyMetrics(sb, "encryption", snapshot.encryptionLatency());
         appendLatencyMetrics(sb, "masking", snapshot.maskingLatency());
 
-        // Per-level counters
         sb.append("# HELP secure_hr_logs_by_level Logs processed by level\n");
         sb.append("# TYPE secure_hr_logs_by_level counter\n");
         snapshot.levelCounts().forEach((level, counter) ->
                 sb.append(String.format("secure_hr_logs_by_level{level=\"%s\"} %d\n",
                         level, counter.sum())));
 
-        // Circuit breaker metrics
         sb.append("# HELP secure_hr_circuit_breaker_opened_total Circuit breaker opened count\n");
         sb.append("# TYPE secure_hr_circuit_breaker_opened_total counter\n");
         sb.append(String.format("secure_hr_circuit_breaker_opened_total %d\n",
@@ -109,7 +93,6 @@ public final class MetricsExporter {
         sb.append(String.format("secure_hr_fallback_activations_total %d\n",
                 snapshot.fallbackActivationCount()));
 
-        // Uptime
         sb.append("# HELP secure_hr_uptime_seconds SDK uptime in seconds\n");
         sb.append("# TYPE secure_hr_uptime_seconds gauge\n");
         sb.append(String.format("secure_hr_uptime_seconds %d\n", snapshot.uptime().getSeconds()));
@@ -129,9 +112,7 @@ public final class MetricsExporter {
         sb.append(String.format("%s_milliseconds{quantile=\"0.99\"} %.2f\n", prefix, stats.p99Ms()));
     }
 
-    /**
-     * Export metrics as JSON
-     */
+    /** JSON 포맷으로 내보내기 */
     public String toJson() {
         try {
             SdkMetrics.Snapshot snapshot = metrics.getSnapshot();
@@ -188,9 +169,7 @@ public final class MetricsExporter {
         return map;
     }
 
-    /**
-     * Start periodic export
-     */
+    /** 주기적 내보내기 시작 */
     public void startPeriodicExport(Duration interval, Consumer<String> exporter) {
         if (scheduler != null) {
             throw new IllegalStateException("Periodic export already started");
@@ -218,9 +197,7 @@ public final class MetricsExporter {
         log.info("Started periodic metrics export every {}ms", interval.toMillis());
     }
 
-    /**
-     * Stop periodic export
-     */
+    /** 주기적 내보내기 중지 */
     public void stopPeriodicExport() {
         if (scheduler != null) {
             scheduler.shutdown();
@@ -237,9 +214,7 @@ public final class MetricsExporter {
         }
     }
 
-    /**
-     * Log metrics at INFO level
-     */
+    /** INFO 레벨로 메트릭 로깅 */
     public void logMetrics() {
         SdkMetrics.Snapshot snapshot = metrics.getSnapshot();
         log.info("SecureHR SDK Metrics: processed={}, dropped={}, failed={}, " +

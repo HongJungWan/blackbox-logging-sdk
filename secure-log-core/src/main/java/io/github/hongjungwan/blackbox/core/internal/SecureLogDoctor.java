@@ -4,27 +4,15 @@ import io.github.hongjungwan.blackbox.api.config.SecureLogConfig;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Doctor Service - Self-diagnostics for SDK health
- *
- * Runs on initialization (SmartLifecycle.start) to verify:
- * 1. KMS connectivity
- * 2. Disk write permissions for fallback directory
- * 3. Off-heap memory allocation capability
- *
- * On failure: Logs warning and auto-switches to Fallback Mode
+ * SDK 자가 진단. 키 파일 접근, 디스크 쓰기 권한, Off-heap 메모리 할당 검사.
  */
 @Slf4j
 public class SecureLogDoctor {
@@ -36,24 +24,16 @@ public class SecureLogDoctor {
         this.config = config;
     }
 
-    /**
-     * Run all diagnostic checks
-     */
+    /** 모든 진단 검사 실행 */
     public DiagnosticReport diagnose() {
         log.info("Running SecureLog diagnostic checks...");
 
         results.clear();
 
-        // Check 1: KMS Connectivity
-        results.add(checkKmsConnectivity());
-
-        // Check 2: Disk Write Permission
+        results.add(checkKeyFileAccess());
         results.add(checkDiskWritePermission());
-
-        // Check 3: Off-heap Memory Allocation
         results.add(checkOffHeapMemory());
 
-        // Generate report
         DiagnosticReport report = new DiagnosticReport(results);
 
         if (report.hasFailures()) {
@@ -69,56 +49,46 @@ public class SecureLogDoctor {
         return report;
     }
 
-    /**
-     * Check 1: KMS Connectivity
-     */
-    private DiagnosticResult checkKmsConnectivity() {
-        if (config.getKmsEndpoint() == null) {
-            return DiagnosticResult.warning("KMS Connectivity", "KMS endpoint not configured - using fallback encryption");
-        }
-
+    /** 검사 1: 키 파일 접근 가능 여부 */
+    private DiagnosticResult checkKeyFileAccess() {
         try {
-            HttpClient client = HttpClient.newBuilder()
-                    .connectTimeout(Duration.ofMillis(config.getKmsTimeoutMs()))
-                    .build();
+            Path keyDir = getKeyDirectory();
 
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(config.getKmsEndpoint() + "/health"))
-                    .timeout(Duration.ofMillis(config.getKmsTimeoutMs()))
-                    .GET()
-                    .build();
-
-            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-
-            if (response.statusCode() == 200) {
-                return DiagnosticResult.success("KMS Connectivity", "Successfully connected to KMS");
-            } else {
-                return DiagnosticResult.failure("KMS Connectivity", "KMS returned status: " + response.statusCode());
+            if (!Files.exists(keyDir)) {
+                Files.createDirectories(keyDir);
             }
 
+            if (Files.isWritable(keyDir)) {
+                return DiagnosticResult.success("Key File Access",
+                        "Key directory is accessible: " + keyDir);
+            } else {
+                return DiagnosticResult.failure("Key File Access",
+                        "Key directory is not writable: " + keyDir);
+            }
         } catch (Exception e) {
-            return DiagnosticResult.failure("KMS Connectivity", "Failed to connect: " + e.getMessage());
+            return DiagnosticResult.failure("Key File Access",
+                    "Failed to access key directory: " + e.getMessage());
         }
     }
 
-    /**
-     * Check 2: Disk Write Permission
-     */
+    private Path getKeyDirectory() {
+        String fallbackDir = config.getFallbackDirectory();
+        if (fallbackDir != null && !fallbackDir.isBlank()) {
+            return Paths.get(fallbackDir);
+        }
+        return Paths.get(System.getProperty("user.home"));
+    }
+
+    /** 검사 2: 디스크 쓰기 권한 */
     private DiagnosticResult checkDiskWritePermission() {
         try {
             Path fallbackDir = Paths.get(config.getFallbackDirectory());
 
-            // Create directory if it doesn't exist
             Files.createDirectories(fallbackDir);
 
-            // Try writing a test file
             Path testFile = fallbackDir.resolve(".test-write");
             Files.writeString(testFile, "test");
-
-            // Try reading back
             String content = Files.readString(testFile);
-
-            // Cleanup
             Files.deleteIfExists(testFile);
 
             if ("test".equals(content)) {
@@ -135,36 +105,26 @@ public class SecureLogDoctor {
         }
     }
 
-    /**
-     * Check 3: Off-heap Memory Allocation
-     */
+    /** 검사 3: Off-heap 메모리 할당 */
     private DiagnosticResult checkOffHeapMemory() {
         try {
-            // Try allocating a DirectByteBuffer (off-heap)
-            int testSize = 1024 * 1024; // 1 MB
+            int testSize = 1024 * 1024;
             ByteBuffer buffer = ByteBuffer.allocateDirect(testSize);
 
-            // Verify allocation
             if (buffer.isDirect() && buffer.capacity() == testSize) {
                 return DiagnosticResult.success("Off-heap Memory",
                         "Successfully allocated " + (testSize / 1024) + " KB off-heap");
             } else {
-                return DiagnosticResult.failure("Off-heap Memory",
-                        "Off-heap allocation verification failed");
+                return DiagnosticResult.failure("Off-heap Memory", "Off-heap allocation verification failed");
             }
-
         } catch (OutOfMemoryError e) {
-            return DiagnosticResult.failure("Off-heap Memory",
-                    "Out of memory for off-heap allocation: " + e.getMessage());
+            return DiagnosticResult.failure("Off-heap Memory", "Out of memory: " + e.getMessage());
         } catch (Exception e) {
-            return DiagnosticResult.failure("Off-heap Memory",
-                    "Failed to allocate off-heap memory: " + e.getMessage());
+            return DiagnosticResult.failure("Off-heap Memory", "Failed to allocate: " + e.getMessage());
         }
     }
 
-    /**
-     * Diagnostic result
-     */
+    /** 진단 결과 */
     public static class DiagnosticResult {
         private final String name;
         private final Status status;
@@ -213,9 +173,7 @@ public class SecureLogDoctor {
         }
     }
 
-    /**
-     * Diagnostic report
-     */
+    /** 진단 리포트 */
     public static class DiagnosticReport {
         private final List<DiagnosticResult> results;
 

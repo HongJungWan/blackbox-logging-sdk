@@ -2,11 +2,8 @@ package io.github.hongjungwan.blackbox.core.internal;
 
 import io.github.hongjungwan.blackbox.api.config.SecureLogConfig;
 import io.github.hongjungwan.blackbox.api.domain.LogEntry;
-import io.github.hongjungwan.blackbox.core.internal.LogSerializer;
 import io.github.hongjungwan.blackbox.core.resilience.CircuitBreaker;
 import io.github.hongjungwan.blackbox.core.resilience.RetryPolicy;
-import io.github.hongjungwan.blackbox.core.resilience.RateLimiter;
-import io.github.hongjungwan.blackbox.core.internal.SdkMetrics;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
@@ -27,19 +24,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 
 /**
- * FEAT-11: Resilient Log Transport with Enhanced Reliability
- *
- * Improvements over base LogTransport:
- * - State machine-based Circuit Breaker with exponential backoff
- * - Configurable Retry Policy with jitter
- * - Rate Limiting for backpressure
- * - Automatic fallback replay
- * - Comprehensive metrics
- *
- * Based on:
- * - Sentry SDK retry logic
- * - AWS SDK exponential backoff
- * - Resilience4j patterns
+ * 장애 복원력 로그 전송. Circuit Breaker + Retry + Fallback 파일 백업.
  */
 @Slf4j
 public class ResilientLogTransport {
@@ -49,19 +34,11 @@ public class ResilientLogTransport {
     private final LogSerializer serializer;
     private final Path fallbackDirectory;
 
-    // Resilience components
     private final CircuitBreaker circuitBreaker;
     private final RetryPolicy retryPolicy;
-    private final RateLimiter rateLimiter;
-
-    // Metrics
     private final SdkMetrics metrics = SdkMetrics.getInstance();
-
-    // Replay scheduler
     private ScheduledExecutorService replayScheduler;
     private volatile boolean autoReplayEnabled = false;
-
-    // Counter for unique fallback filenames
     private final AtomicLong fallbackFileCounter = new AtomicLong(0);
 
     public ResilientLogTransport(SecureLogConfig config, LogSerializer serializer) {
@@ -70,12 +47,9 @@ public class ResilientLogTransport {
         this.kafkaProducer = initializeKafkaProducer();
         this.fallbackDirectory = Paths.get(config.getFallbackDirectory());
 
-        // Initialize circuit breaker
         this.circuitBreaker = CircuitBreaker.builder("kafka-transport")
                 .failureThreshold(config.getCircuitBreakerFailureThreshold())
-                .successThreshold(2)
                 .openDuration(Duration.ofSeconds(30))
-                .maxOpenDuration(Duration.ofMinutes(5))
                 .onStateChange((name, from, to) -> {
                     if (to == CircuitBreaker.State.OPEN) {
                         metrics.recordCircuitBreakerOpened();
@@ -85,21 +59,11 @@ public class ResilientLogTransport {
                 })
                 .build();
 
-        // Initialize retry policy
         this.retryPolicy = RetryPolicy.builder()
                 .maxAttempts(config.getKafkaRetries())
                 .initialDelay(Duration.ofMillis(100))
-                .maxDelay(Duration.ofSeconds(10))
-                .multiplier(2.0)
-                .jitterFactor(0.25)
                 .build();
 
-        // Initialize rate limiter (20K logs/sec default)
-        this.rateLimiter = RateLimiter.builder("transport")
-                .logsPerSecond(20_000)
-                .build();
-
-        // Ensure fallback directory exists
         ensureFallbackDirectory();
     }
 
@@ -118,19 +82,8 @@ public class ResilientLogTransport {
         }
     }
 
-    /**
-     * Send log data with full resilience support
-     */
+    /** 로그 전송 (Circuit Breaker + Retry 적용) */
     public void send(byte[] data) {
-        // Rate limiting check
-        if (!rateLimiter.tryAcquire()) {
-            log.debug("Rate limited, sending to fallback");
-            metrics.recordLogDropped("rate_limited");
-            sendToFallback(data);
-            return;
-        }
-
-        // Circuit breaker check
         try {
             circuitBreaker.execute(() -> {
                 sendWithRetry(data);
@@ -145,26 +98,18 @@ public class ResilientLogTransport {
         }
     }
 
-    /**
-     * Send with retry policy
-     *
-     * FIX P1-5: KafkaProducer.send() is async, so we must call .join() to wait for completion.
-     * Without .join(), exceptions from async send would not trigger retry logic.
-     */
+    /** Retry 적용 전송 */
     private void sendWithRetry(byte[] data) {
         if (kafkaProducer == null) {
             throw new TransportException("Kafka producer not configured");
         }
 
         retryPolicy.execute(() -> {
-            // FIX P1-5: Call join() to wait for async send completion and catch exceptions
             kafkaProducer.send(config.getKafkaTopic(), data).join();
         });
     }
 
-    /**
-     * Send to fallback file storage
-     */
+    /** Fallback 파일 저장 */
     public void sendToFallback(byte[] data) {
         try {
             String timestamp = LocalDateTime.now()
@@ -184,17 +129,13 @@ public class ResilientLogTransport {
         }
     }
 
-    /**
-     * Send LogEntry to fallback
-     */
+    /** LogEntry Fallback 저장 */
     public void sendToFallback(LogEntry entry) {
         byte[] data = serializer.serialize(entry);
         sendToFallback(data);
     }
 
-    /**
-     * Replay logs from fallback when Kafka recovers
-     */
+    /** Kafka 복구 시 Fallback 로그 재전송 */
     public void replayFallbackLogs() {
         if (kafkaProducer == null) {
             log.warn("Cannot replay - Kafka not configured");
@@ -226,62 +167,34 @@ public class ResilientLogTransport {
         }
     }
 
-    /**
-     * Replay a single fallback file with file locking to prevent concurrent processing.
-     * Uses FileLock to ensure only one thread/process can replay a given file.
-     *
-     * FIX P2 #13: Validate Zstd data before sending to Kafka.
-     *
-     * @param file the fallback file to replay
-     * @return true if replay succeeded or file was skipped (being processed), false on error
-     */
+    /** 단일 파일 재전송 (파일 잠금 적용) */
     private boolean replayFile(Path file) {
         FileLock lock = null;
         try (FileChannel channel = FileChannel.open(file, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
-            // Try to acquire exclusive lock (non-blocking)
             lock = channel.tryLock();
             if (lock == null) {
-                // File is being processed by another thread/process, skip
                 log.debug("File {} is being processed by another thread, skipping", file);
-                return true;  // Not an error, just skip
+                return true;
             }
 
-            // Read file contents while holding lock
             byte[] data = Files.readAllBytes(file);
 
-            // FIX P2 #13: Validate Zstd frame before sending
             if (!isValidZstdFrame(data)) {
                 log.warn("Corrupted fallback file (invalid Zstd frame), deleting: {}", file);
-                // Release lock before delete
-                if (lock != null && lock.isValid()) {
-                    try {
-                        lock.release();
-                    } catch (IOException e) {
-                        log.warn("Failed to release file lock: {}", e.getMessage());
-                    }
-                    lock = null;
-                }
+                releaseLock(lock);
+                lock = null;
                 Files.delete(file);
                 return true;
             }
 
-            // Use circuit breaker for replay
             circuitBreaker.execute(() -> {
                 kafkaProducer.send(config.getKafkaTopic(), data);
                 return null;
             });
 
-            // Release lock before secure delete
-            if (lock != null && lock.isValid()) {
-                try {
-                    lock.release();
-                } catch (IOException e) {
-                    log.warn("Failed to release file lock: {}", e.getMessage());
-                }
-                lock = null;
-            }
+            releaseLock(lock);
+            lock = null;
 
-            // Secure delete after successful replay
             secureDelete(file);
             log.info("Replayed and deleted: {}", file);
             return true;
@@ -290,40 +203,33 @@ public class ResilientLogTransport {
             log.error("Failed to replay file: {}", file, e);
             return false;
         } finally {
-            // Ensure lock is released if still valid
-            if (lock != null && lock.isValid()) {
-                try {
-                    lock.release();
-                } catch (IOException e) {
-                    log.warn("Failed to release file lock: {}", e.getMessage());
-                }
+            releaseLock(lock);
+        }
+    }
+
+    private void releaseLock(FileLock lock) {
+        if (lock != null && lock.isValid()) {
+            try {
+                lock.release();
+            } catch (IOException e) {
+                log.warn("Failed to release file lock: {}", e.getMessage());
             }
         }
     }
 
-    /**
-     * FIX P2 #13: Validate Zstd frame by checking magic number.
-     * Zstd magic number: 0xFD2FB528 (little-endian: 0x28, 0xB5, 0x2F, 0xFD)
-     *
-     * @param data the data to validate
-     * @return true if data has valid Zstd magic number
-     */
+    /** Zstd 프레임 검증 (magic number: 0xFD2FB528) */
     private boolean isValidZstdFrame(byte[] data) {
         if (data == null || data.length < 4) {
             return false;
         }
-        // Zstd magic number in little-endian: 0x28 0xB5 0x2F 0xFD
         return (data[0] & 0xFF) == 0x28 &&
                (data[1] & 0xFF) == 0xB5 &&
                (data[2] & 0xFF) == 0x2F &&
                (data[3] & 0xFF) == 0xFD;
     }
 
-    /**
-     * Secure delete: overwrite then delete
-     */
+    /** 안전 삭제 (덮어쓰기 후 삭제) */
     private void secureDelete(Path file) throws IOException {
-        // Overwrite with zeros
         long size = Files.size(file);
         byte[] zeros = new byte[(int) Math.min(size, 8192)];
 
@@ -337,13 +243,10 @@ public class ResilientLogTransport {
             }
         }
 
-        // Delete file
         Files.delete(file);
     }
 
-    /**
-     * Enable automatic fallback replay
-     */
+    /** 자동 Fallback 재전송 활성화 */
     public void enableAutoReplay(Duration interval) {
         if (autoReplayEnabled) {
             return;
@@ -370,9 +273,7 @@ public class ResilientLogTransport {
         log.info("Enabled auto-replay every {}s", interval.toSeconds());
     }
 
-    /**
-     * Disable automatic fallback replay
-     */
+    /** 자동 Fallback 재전송 비활성화 */
     public void disableAutoReplay() {
         if (replayScheduler != null) {
             replayScheduler.shutdown();
@@ -389,32 +290,17 @@ public class ResilientLogTransport {
         autoReplayEnabled = false;
     }
 
-    /**
-     * Force circuit breaker reset (for testing/admin)
-     */
+    /** Circuit Breaker 강제 리셋 */
     public void resetCircuitBreaker() {
         circuitBreaker.reset();
     }
 
-    /**
-     * Get circuit breaker state
-     */
     public CircuitBreaker.State getCircuitBreakerState() {
         return circuitBreaker.getState();
     }
 
-    /**
-     * Get circuit breaker metrics
-     */
     public CircuitBreaker.Metrics getCircuitBreakerMetrics() {
         return circuitBreaker.getMetrics();
-    }
-
-    /**
-     * Get rate limiter metrics
-     */
-    public RateLimiter.Metrics getRateLimiterMetrics() {
-        return rateLimiter.getMetrics();
     }
 
     public void close() {
@@ -424,9 +310,6 @@ public class ResilientLogTransport {
         }
     }
 
-    /**
-     * Transport exception
-     */
     public static class TransportException extends RuntimeException {
         public TransportException(String message) {
             super(message);
