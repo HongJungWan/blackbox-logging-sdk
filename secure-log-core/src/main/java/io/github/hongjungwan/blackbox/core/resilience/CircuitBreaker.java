@@ -2,8 +2,12 @@ package io.github.hongjungwan.blackbox.core.resilience;
 
 import lombok.extern.slf4j.Slf4j;
 
+import java.util.concurrent.locks.ReentrantLock;
+
 /**
- * 연속 실패 기반 Circuit Breaker - N번 연속 실패 시 일정 시간 동안 fast-fail
+ * 연속 실패 기반 Circuit Breaker - N번 연속 실패 시 일정 시간 동안 fast-fail.
+ *
+ * ReentrantLock 기반 동기화로 Virtual Thread 호환성 확보.
  */
 @Slf4j
 public final class CircuitBreaker {
@@ -11,6 +15,7 @@ public final class CircuitBreaker {
     private final String name;
     private final int failureThreshold;
     private final long resetTimeoutMs;
+    private final ReentrantLock lock = new ReentrantLock();
 
     private int consecutiveFailures = 0;
     private long lastFailureTime = 0;
@@ -33,15 +38,20 @@ public final class CircuitBreaker {
     /**
      * Circuit이 열려있는지 확인
      */
-    public synchronized boolean isOpen() {
-        if (consecutiveFailures >= failureThreshold) {
-            long elapsed = System.currentTimeMillis() - lastFailureTime;
-            if (elapsed < resetTimeoutMs) {
-                return true;
+    public boolean isOpen() {
+        lock.lock();
+        try {
+            if (consecutiveFailures >= failureThreshold) {
+                long elapsed = System.currentTimeMillis() - lastFailureTime;
+                if (elapsed < resetTimeoutMs) {
+                    return true;
+                }
+                resetInternal();
             }
-            reset();
+            return false;
+        } finally {
+            lock.unlock();
         }
-        return false;
     }
 
     /**
@@ -54,25 +64,35 @@ public final class CircuitBreaker {
     /**
      * 성공 기록 - 연속 실패 카운터 리셋
      */
-    public synchronized void onSuccess() {
-        if (consecutiveFailures > 0) {
-            State previousState = getState();
-            consecutiveFailures = 0;
-            notifyStateChange(previousState, State.CLOSED);
+    public void onSuccess() {
+        lock.lock();
+        try {
+            if (consecutiveFailures > 0) {
+                State previousState = getStateInternal();
+                consecutiveFailures = 0;
+                notifyStateChange(previousState, State.CLOSED);
+            }
+        } finally {
+            lock.unlock();
         }
     }
 
     /**
      * 실패 기록 - 연속 실패 카운터 증가
      */
-    public synchronized void onFailure(Exception e) {
-        State previousState = getState();
-        consecutiveFailures++;
-        lastFailureTime = System.currentTimeMillis();
+    public void onFailure(Exception e) {
+        lock.lock();
+        try {
+            State previousState = getStateInternal();
+            consecutiveFailures++;
+            lastFailureTime = System.currentTimeMillis();
 
-        if (consecutiveFailures >= failureThreshold && previousState == State.CLOSED) {
-            log.warn("Circuit breaker '{}' OPEN after {} consecutive failures", name, failureThreshold);
-            notifyStateChange(State.CLOSED, State.OPEN);
+            if (consecutiveFailures >= failureThreshold && previousState == State.CLOSED) {
+                log.warn("Circuit breaker '{}' OPEN after {} consecutive failures", name, failureThreshold);
+                notifyStateChange(State.CLOSED, State.OPEN);
+            }
+        } finally {
+            lock.unlock();
         }
     }
 
@@ -107,8 +127,18 @@ public final class CircuitBreaker {
     /**
      * 강제 리셋
      */
-    public synchronized void reset() {
-        State previousState = getState();
+    public void reset() {
+        lock.lock();
+        try {
+            resetInternal();
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /** 락 내부에서 호출되는 리셋 로직 */
+    private void resetInternal() {
+        State previousState = getStateInternal();
         consecutiveFailures = 0;
         lastFailureTime = 0;
 
@@ -122,6 +152,16 @@ public final class CircuitBreaker {
      * 현재 상태 조회
      */
     public State getState() {
+        lock.lock();
+        try {
+            return getStateInternal();
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /** 락 내부에서 호출되는 상태 조회 로직 */
+    private State getStateInternal() {
         return isOpenInternal() ? State.OPEN : State.CLOSED;
     }
 

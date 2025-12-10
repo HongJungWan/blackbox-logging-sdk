@@ -36,7 +36,7 @@ public class EnvelopeEncryption {
     private static final TypeReference<Map<String, Object>> MAP_TYPE_REF = new TypeReference<>() {};
 
     private final SecureLogConfig config;
-    private final KmsClient kmsClient;
+    private final LocalKeyManager keyManager;
     private final SecureRandom secureRandom;
     private final ReentrantLock rotationLock = new ReentrantLock();
 
@@ -49,9 +49,9 @@ public class EnvelopeEncryption {
         Security.addProvider(new BouncyCastleProvider());
     }
 
-    public EnvelopeEncryption(SecureLogConfig config, KmsClient kmsClient) {
+    public EnvelopeEncryption(SecureLogConfig config, LocalKeyManager keyManager) {
         this.config = config;
-        this.kmsClient = kmsClient;
+        this.keyManager = keyManager;
         this.secureRandom = new SecureRandom();
         this.currentDek = generateDek();
         this.dekCreationTime = System.currentTimeMillis();
@@ -116,7 +116,7 @@ public class EnvelopeEncryption {
 
     /** KEK로 DEK 암호화. */
     private byte[] encryptDekWithKek(SecretKey dek) throws Exception {
-        SecretKey kek = kmsClient.getKek();
+        SecretKey kek = keyManager.getKek();
 
         Cipher cipher = Cipher.getInstance(TRANSFORMATION);
         byte[] iv = new byte[GCM_IV_LENGTH];
@@ -265,7 +265,7 @@ public class EnvelopeEncryption {
 
     /** KEK로 암호화된 DEK 복호화. */
     private SecretKey decryptDekWithKek(byte[] encryptedDek) throws Exception {
-        SecretKey kek = kmsClient.getKek();
+        SecretKey kek = keyManager.getKek();
 
         byte[] iv = new byte[GCM_IV_LENGTH];
         byte[] ciphertext = new byte[encryptedDek.length - GCM_IV_LENGTH];

@@ -45,12 +45,6 @@ dependencies {
 	// Kafka client
 	implementation 'org.apache.kafka:kafka-clients:3.7.0'
 
-	// AWS KMS SDK
-	implementation platform('software.amazon.awssdk:bom:2.25.0')
-	implementation 'software.amazon.awssdk:kms'
-	implementation 'software.amazon.awssdk:sts'
-	implementation 'software.amazon.awssdk:url-connection-client'
-
 	// Lombok for development
 	compileOnly 'org.projectlombok:lombok:1.18.36'
 	annotationProcessor 'org.projectlombok:lombok:1.18.36'
@@ -63,7 +57,6 @@ dependencies {
 	// Testcontainers for integration tests
 	testImplementation 'org.testcontainers:testcontainers:1.19.7'
 	testImplementation 'org.testcontainers:kafka:1.19.7'
-	testImplementation 'org.testcontainers:localstack:1.19.7'
 	testImplementation 'org.testcontainers:junit-jupiter:1.19.7'
 
 	// JMH for performance benchmarks

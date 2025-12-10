@@ -17,15 +17,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class EnvelopeEncryptionTest {
 
     private EnvelopeEncryption encryption;
-    private KmsClient kmsClient;
+    private LocalKeyManager keyManager;
 
     @BeforeEach
     void setUp() {
         SecureLogConfig config = SecureLogConfig.builder()
-                .kmsFallbackEnabled(true) // Use fallback KEK for testing
                 .build();
-        kmsClient = new KmsClient(config);
-        encryption = new EnvelopeEncryption(config, kmsClient);
+        keyManager = new LocalKeyManager(config);
+        encryption = new EnvelopeEncryption(config, keyManager);
     }
 
     @Nested

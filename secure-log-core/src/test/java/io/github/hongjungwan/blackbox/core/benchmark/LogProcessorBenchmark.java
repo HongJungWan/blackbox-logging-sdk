@@ -6,7 +6,7 @@ import io.github.hongjungwan.blackbox.core.internal.MerkleChain;
 import io.github.hongjungwan.blackbox.core.security.PiiMasker;
 import io.github.hongjungwan.blackbox.core.internal.LogProcessor;
 import io.github.hongjungwan.blackbox.core.security.EnvelopeEncryption;
-import io.github.hongjungwan.blackbox.core.security.KmsClient;
+import io.github.hongjungwan.blackbox.core.security.LocalKeyManager;
 import io.github.hongjungwan.blackbox.core.internal.LogSerializer;
 import io.github.hongjungwan.blackbox.core.internal.ResilientLogTransport;
 import org.openjdk.jmh.annotations.*;
@@ -53,7 +53,6 @@ public class LogProcessorBenchmark {
                 .piiMaskingEnabled(true)
                 .encryptionEnabled(true)
                 .integrityEnabled(true)
-                .kmsFallbackEnabled(true)
                 .fallbackDirectory(tempDir.toString())
                 .build();
 
@@ -62,7 +61,7 @@ public class LogProcessorBenchmark {
         processor = new LogProcessor(
                 fullConfig,
                 new PiiMasker(fullConfig),
-                new EnvelopeEncryption(fullConfig, new KmsClient(fullConfig)),
+                new EnvelopeEncryption(fullConfig, new LocalKeyManager(fullConfig)),
                 new MerkleChain(),
                 new LogSerializer(),
                 noOpTransport
@@ -73,14 +72,13 @@ public class LogProcessorBenchmark {
                 .piiMaskingEnabled(false)
                 .encryptionEnabled(false)
                 .integrityEnabled(false)
-                .kmsFallbackEnabled(true)
                 .fallbackDirectory(tempDir.toString())
                 .build();
 
         minimalProcessor = new LogProcessor(
                 minimalConfig,
                 new PiiMasker(minimalConfig),
-                new EnvelopeEncryption(minimalConfig, new KmsClient(minimalConfig)),
+                new EnvelopeEncryption(minimalConfig, new LocalKeyManager(minimalConfig)),
                 new MerkleChain(),
                 new LogSerializer(),
                 noOpTransport

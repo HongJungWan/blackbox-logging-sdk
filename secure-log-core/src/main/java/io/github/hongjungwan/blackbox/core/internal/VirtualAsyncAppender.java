@@ -17,11 +17,14 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * 비동기 로그 Appender. ArrayBlockingQueue 버퍼 + 고정 Thread Pool 기반.
+ *
+ * 설정 가능한 Consumer 스레드 수로 처리량 조절 가능.
  */
 public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEvent> {
 
-    private final ExecutorService executor = Executors.newFixedThreadPool(2);
+    private final ExecutorService executor;
     private final BlockingQueue<ILoggingEvent> buffer;
+    private final int consumerThreads;
 
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
     private final SecureLogConfig config;
@@ -30,7 +33,7 @@ public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEve
     private Thread consumerThread;
 
     private final AtomicBoolean consumerFinished = new AtomicBoolean(false);
-    private final CountDownLatch consumerBatchLatch = new CountDownLatch(1);
+    private final CountDownLatch consumerBatchLatch;
     private final String consumerId = "secure-log-consumer-" + System.nanoTime();
     private final AtomicLong droppedEvents = new AtomicLong(0);
 
@@ -38,14 +41,20 @@ public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEve
         this.config = config;
         this.processor = processor;
         this.buffer = new ArrayBlockingQueue<>(config.getBufferSize());
+        this.consumerThreads = Math.max(1, config.getConsumerThreads());
+        this.executor = Executors.newFixedThreadPool(consumerThreads);
+        this.consumerBatchLatch = new CountDownLatch(consumerThreads);
     }
 
     @Override
     public void start() {
         if (isRunning.compareAndSet(false, true)) {
             super.start();
-            startConsumerLoop();
-            addInfo("VirtualAsyncAppender started with buffer size: " + config.getBufferSize());
+            for (int i = 0; i < consumerThreads; i++) {
+                startConsumerLoop(i);
+            }
+            addInfo("VirtualAsyncAppender started with buffer size: " + config.getBufferSize() +
+                    ", consumer threads: " + consumerThreads);
         }
     }
 
@@ -120,21 +129,26 @@ public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEve
         }
     }
 
-    private void startConsumerLoop() {
+    private void startConsumerLoop(int threadIndex) {
+        String threadName = consumerId + "-" + threadIndex;
         executor.submit(() -> {
-            consumerThread = Thread.currentThread();
-            Thread.currentThread().setName(consumerId);
+            if (threadIndex == 0) {
+                consumerThread = Thread.currentThread();
+            }
+            Thread.currentThread().setName(threadName);
 
             try {
                 while (isRunning.get() || !buffer.isEmpty()) {
                     try {
                         processNextBatch();
                     } catch (Exception e) {
-                        addError("[" + consumerId + "] Error in consumer loop", e);
+                        addError("[" + threadName + "] Error in consumer loop", e);
                     }
                 }
             } finally {
-                consumerFinished.set(true);
+                if (consumerBatchLatch.getCount() == 1) {
+                    consumerFinished.set(true);
+                }
                 consumerBatchLatch.countDown();
             }
         });

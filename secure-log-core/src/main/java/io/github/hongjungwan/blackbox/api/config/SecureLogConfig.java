@@ -20,6 +20,10 @@ public class SecureLogConfig {
     @Builder.Default
     private final int bufferSize = 8192;
 
+    /** 비동기 로깅용 Consumer 스레드 수 (기본: 2) */
+    @Builder.Default
+    private final int consumerThreads = 2;
+
     /** PII 마스킹 활성화 */
     @Builder.Default
     private final boolean piiMaskingEnabled = true;
@@ -31,27 +35,6 @@ public class SecureLogConfig {
     /** 암호화 활성화 */
     @Builder.Default
     private final boolean encryptionEnabled = true;
-
-    /** KMS 엔드포인트 (레거시, AWS KMS는 kmsKeyId 사용) */
-    private final String kmsEndpoint;
-
-    /** AWS KMS Key ID 또는 ARN */
-    private final String kmsKeyId;
-
-    /** AWS KMS 리전 */
-    @Builder.Default
-    private final String kmsRegion = "ap-northeast-2";
-
-    /** Cross-account 접근용 IAM Role ARN (선택) */
-    private final String kmsRoleArn;
-
-    /** KMS 타임아웃 (ms) */
-    @Builder.Default
-    private final int kmsTimeoutMs = 2000;
-
-    /** KMS 장애 시 Fallback 키 사용 (운영 환경 비권장) */
-    @Builder.Default
-    private final boolean kmsFallbackEnabled = true;
 
     /** Kafka 브로커 주소 */
     private final String kafkaBootstrapServers;
@@ -88,7 +71,7 @@ public class SecureLogConfig {
     @Builder.Default
     private final String kafkaSecurityProtocol = "PLAINTEXT";
 
-    /** Circuit Breaker용 Fallback 디렉토리 */
+    /** Fallback 디렉토리 (Circuit Breaker 발동 시, 키 저장 시) */
     @Builder.Default
     private final String fallbackDirectory = "logs/fallback";
 
@@ -118,36 +101,16 @@ public class SecureLogConfig {
         return SecureLogConfig.builder().build();
     }
 
-    /**
-     * 레거시 KMS 엔드포인트 기반 운영 설정.
-     * @deprecated AWS KMS는 {@link #awsKmsProductionConfig(String, String, String)} 사용
-     */
-    @Deprecated
-    public static SecureLogConfig productionConfig(String kmsEndpoint, String kafkaBootstrapServers) {
+    /** 프로덕션 설정 */
+    public static SecureLogConfig productionConfig(String kafkaBootstrapServers) {
         return SecureLogConfig.builder()
                 .mode(LoggingMode.ASYNC)
-                .kmsEndpoint(kmsEndpoint)
-                .kafkaBootstrapServers(kafkaBootstrapServers)
-                .encryptionEnabled(true)
-                .piiMaskingEnabled(true)
-                .integrityEnabled(true)
-                .kmsFallbackEnabled(false)
-                .build();
-    }
-
-    /** AWS KMS 기반 운영 설정 */
-    public static SecureLogConfig awsKmsProductionConfig(String kmsKeyId, String kmsRegion, String kafkaBootstrapServers) {
-        return SecureLogConfig.builder()
-                .mode(LoggingMode.ASYNC)
-                .kmsKeyId(kmsKeyId)
-                .kmsRegion(kmsRegion)
                 .kafkaBootstrapServers(kafkaBootstrapServers)
                 .kafkaAcks("all")
                 .kafkaCompressionType("zstd")
                 .encryptionEnabled(true)
                 .piiMaskingEnabled(true)
                 .integrityEnabled(true)
-                .kmsFallbackEnabled(false)
                 .build();
     }
 }

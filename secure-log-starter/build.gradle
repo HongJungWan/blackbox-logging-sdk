@@ -21,12 +21,20 @@ dependencies {
 	annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
 	annotationProcessor 'org.springframework.boot:spring-boot-autoconfigure-processor'
 
+	// AOP for @AuditContext support
+	api 'org.springframework.boot:spring-boot-starter-aop'
+
+	// Spring Security (optional - for extracting current user)
+	compileOnly 'org.springframework.boot:spring-boot-starter-security'
+
 	// Lombok
 	compileOnly 'org.projectlombok:lombok'
 	annotationProcessor 'org.projectlombok:lombok'
 
 	// Testing
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testImplementation 'org.springframework.boot:spring-boot-starter-security'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
 // Generate spring-configuration-metadata.json

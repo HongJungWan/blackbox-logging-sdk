@@ -28,7 +28,6 @@ class SecureLogConfigTest {
             assertThat(config.isPiiMaskingEnabled()).isTrue();
             assertThat(config.isEncryptionEnabled()).isTrue();
             assertThat(config.isIntegrityEnabled()).isTrue();
-            assertThat(config.isKmsFallbackEnabled()).isTrue();
         }
 
         @Test
@@ -110,83 +109,23 @@ class SecureLogConfigTest {
     }
 
     @Nested
-    @DisplayName("KMS 설정")
-    class KmsConfigTests {
-
-        @Test
-        @DisplayName("KMS 기본 설정이 올바르게 적용되어야 한다")
-        void shouldHaveCorrectKmsDefaults() {
-            // when
-            SecureLogConfig config = SecureLogConfig.defaultConfig();
-
-            // then
-            assertThat(config.getKmsRegion()).isEqualTo("ap-northeast-2");
-            assertThat(config.getKmsTimeoutMs()).isEqualTo(2000);
-            assertThat(config.isKmsFallbackEnabled()).isTrue();
-        }
-
-        @Test
-        @DisplayName("AWS KMS 설정을 커스터마이징할 수 있어야 한다")
-        void shouldAllowAwsKmsCustomization() {
-            // when
-            SecureLogConfig config = SecureLogConfig.builder()
-                    .kmsKeyId("arn:aws:kms:ap-northeast-2:123456789:key/abc-def")
-                    .kmsRegion("us-east-1")
-                    .kmsRoleArn("arn:aws:iam::123456789:role/KmsAccessRole")
-                    .kmsTimeoutMs(5000)
-                    .kmsFallbackEnabled(false)
-                    .build();
-
-            // then
-            assertThat(config.getKmsKeyId()).isEqualTo("arn:aws:kms:ap-northeast-2:123456789:key/abc-def");
-            assertThat(config.getKmsRegion()).isEqualTo("us-east-1");
-            assertThat(config.getKmsRoleArn()).isEqualTo("arn:aws:iam::123456789:role/KmsAccessRole");
-            assertThat(config.getKmsTimeoutMs()).isEqualTo(5000);
-            assertThat(config.isKmsFallbackEnabled()).isFalse();
-        }
-    }
-
-    @Nested
     @DisplayName("프로덕션 설정")
     class ProductionConfigTests {
 
         @Test
-        @DisplayName("AWS KMS 프로덕션 설정이 올바르게 구성되어야 한다")
-        void shouldCreateCorrectAwsKmsProductionConfig() {
+        @DisplayName("프로덕션 설정이 올바르게 구성되어야 한다")
+        void shouldCreateCorrectProductionConfig() {
             // when
-            SecureLogConfig config = SecureLogConfig.awsKmsProductionConfig(
-                    "arn:aws:kms:ap-northeast-2:123456789:key/abc",
-                    "ap-northeast-2",
-                    "kafka:9092"
-            );
+            SecureLogConfig config = SecureLogConfig.productionConfig("kafka:9092");
 
             // then
             assertThat(config.getMode()).isEqualTo(SecureLogConfig.LoggingMode.ASYNC);
-            assertThat(config.getKmsKeyId()).isEqualTo("arn:aws:kms:ap-northeast-2:123456789:key/abc");
-            assertThat(config.getKmsRegion()).isEqualTo("ap-northeast-2");
             assertThat(config.getKafkaBootstrapServers()).isEqualTo("kafka:9092");
             assertThat(config.getKafkaAcks()).isEqualTo("all");
             assertThat(config.getKafkaCompressionType()).isEqualTo("zstd");
             assertThat(config.isEncryptionEnabled()).isTrue();
             assertThat(config.isPiiMaskingEnabled()).isTrue();
             assertThat(config.isIntegrityEnabled()).isTrue();
-            assertThat(config.isKmsFallbackEnabled()).isFalse();
-        }
-
-        @Test
-        @DisplayName("레거시 프로덕션 설정도 동작해야 한다")
-        @SuppressWarnings("deprecation")
-        void shouldSupportLegacyProductionConfig() {
-            // when
-            SecureLogConfig config = SecureLogConfig.productionConfig(
-                    "https://kms.internal/v1/keys",
-                    "kafka:9092"
-            );
-
-            // then
-            assertThat(config.getKmsEndpoint()).isEqualTo("https://kms.internal/v1/keys");
-            assertThat(config.getKafkaBootstrapServers()).isEqualTo("kafka:9092");
-            assertThat(config.isKmsFallbackEnabled()).isFalse();
         }
     }
 

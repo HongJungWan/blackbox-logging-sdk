@@ -164,10 +164,54 @@ String maskedValue = masker.maskValue("123456-1234567", MaskType.RRN);  // Direc
 
 **Supported MaskTypes**: RRN, PHONE, EMAIL, CREDIT_CARD, PASSWORD, SSN, NAME, ADDRESS, ACCOUNT_NUMBER
 
+**Emergency Mode**: Use `@Mask(value = MaskType.RRN, emergency = true)` to encrypt original data with RSA public key instead of masking (for later recovery with private key).
+
 **Files**:
 - `api/annotation/Mask.java` - Field/method annotation
 - `api/annotation/MaskType.java` - Masking type enum
 - `core/security/AnnotationMaskingProcessor.java` - Reflection-based processor with metadata caching
+- `core/security/EmergencyEncryptor.java` - RSA-OAEP public key encryption for emergency mode
+
+### AOP-Based Audit Context (Who/Whom/Why)
+Automatically capture audit context using `@AuditContext` annotation:
+
+```java
+@AuditContext(
+    why = "급여 정보 조회",
+    whomParam = "employeeId",
+    action = AuditAction.READ,
+    resourceType = "Salary"
+)
+public EmployeeSalaryDto getSalary(String employeeId) {
+    // Automatically captured:
+    // - who: Current authenticated user (from SecurityContext)
+    // - whom: employeeId parameter value
+    // - why: "급여 정보 조회"
+    // - action: READ
+    return repository.findSalary(employeeId);
+}
+
+// SpEL expression support
+@AuditContext(why = "#{#employeeId}의 급여를 #{#reason}으로 조회")
+public EmployeeSalaryDto getSalary(String employeeId, String reason) { ... }
+```
+
+**AuditAction types**: CREATE, READ, UPDATE, DELETE, EXPORT, APPROVE, REJECT, LOGIN, LOGOUT, PERMISSION_CHANGE, OTHER
+
+**Who extraction priority**:
+1. Spring Security SecurityContextHolder
+2. LoggingContext userId baggage
+3. "ANONYMOUS" (fallback)
+
+**Whom auto-detection**: Automatically finds parameters named `employeeId`, `userId`, `targetId`, `id`, `memberId`, `staffId`
+
+**Files**:
+- `api/annotation/AuditContext.java` - Method annotation
+- `api/annotation/AuditAction.java` - Action type enum
+- `api/domain/AuditInfo.java` - Immutable audit info domain
+- `starter/aop/AuditContextAspect.java` - AOP aspect implementation
+- `starter/aop/AuditUserExtractor.java` - User extraction interface
+- `starter/aop/SecurityContextUserExtractor.java` - Spring Security integration
 
 ### Null Safety Patterns
 SDK applies defensive null checks at critical points:
@@ -234,13 +278,18 @@ secure-hr:
     enabled: true
     mode: ASYNC  # SYNC, ASYNC, FALLBACK
     buffer-size: 8192
-    circuit-breaker-failure-threshold: 3
+    consumer-threads: 2  # Async consumer thread count
     pii-masking:
       enabled: true
       patterns: ["rrn", "credit_card", "password", "ssn"]
     security:
       encryption-enabled: true
+      integrity-enabled: true
       kms-key-id: "arn:aws:kms:..."
+      emergency-public-key: "Base64-encoded-RSA-public-key"  # For emergency mode
+    audit:
+      enabled: true  # Enable @AuditContext AOP
+      log-enabled: true  # Log audit events
 ```
 
 ## Performance Targets
@@ -324,14 +373,16 @@ Measured metrics:
 ```
 io.github.hongjungwan.blackbox
 ├── api/                    # Public API (SecureLogger, LogEntry, LoggingContext)
-│   ├── annotation/         # @Mask, MaskType
+│   ├── annotation/         # @Mask, MaskType, @AuditContext, AuditAction
 │   ├── config/             # Configuration classes
 │   ├── context/            # Context propagation
-│   ├── domain/             # Domain models
+│   ├── domain/             # Domain models (LogEntry, AuditInfo)
 │   └── interceptor/        # Interceptor interfaces
 ├── core/
 │   ├── internal/           # Core implementations (LogProcessor, VirtualAsyncAppender, etc.)
 │   ├── resilience/         # CircuitBreaker, RetryPolicy
-│   └── security/           # EnvelopeEncryption, KmsClient, PiiMasker
-└── spi/                    # Extension points (EncryptionProvider, MaskingStrategy, TransportProvider)
+│   └── security/           # EnvelopeEncryption, KmsClient, PiiMasker, EmergencyEncryptor
+├── spi/                    # Extension points (EncryptionProvider, MaskingStrategy, TransportProvider)
+└── starter/                # Spring Boot Starter (secure-log-starter module)
+    └── aop/                # AuditContextAspect, AuditUserExtractor
 ```

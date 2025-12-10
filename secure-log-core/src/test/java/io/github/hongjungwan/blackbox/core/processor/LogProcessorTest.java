@@ -8,7 +8,7 @@ import io.github.hongjungwan.blackbox.core.internal.LogSerializer;
 import io.github.hongjungwan.blackbox.core.internal.ResilientLogTransport;
 import io.github.hongjungwan.blackbox.core.security.PiiMasker;
 import io.github.hongjungwan.blackbox.core.security.EnvelopeEncryption;
-import io.github.hongjungwan.blackbox.core.security.KmsClient;
+import io.github.hongjungwan.blackbox.core.security.LocalKeyManager;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mock;
@@ -41,13 +41,12 @@ class LogProcessorTest {
                 .piiMaskingEnabled(true)
                 .encryptionEnabled(true)
                 .integrityEnabled(true)
-                .kmsFallbackEnabled(true)
                 .fallbackDirectory(tempDir.toString())
                 .build();
 
         PiiMasker piiMasker = new PiiMasker(config);
-        KmsClient kmsClient = new KmsClient(config);
-        EnvelopeEncryption encryption = new EnvelopeEncryption(config, kmsClient);
+        LocalKeyManager keyManager = new LocalKeyManager(config);
+        EnvelopeEncryption encryption = new EnvelopeEncryption(config, keyManager);
         MerkleChain merkleChain = new MerkleChain();
         LogSerializer serializer = new LogSerializer();
 
@@ -119,14 +118,13 @@ class LogProcessorTest {
                     .piiMaskingEnabled(false)
                     .encryptionEnabled(false)
                     .integrityEnabled(false)
-                    .kmsFallbackEnabled(true)
                     .fallbackDirectory(tempDir.toString())
                     .build();
 
             LogProcessor minimalProcessor = new LogProcessor(
                     disabledConfig,
                     new PiiMasker(disabledConfig),
-                    new EnvelopeEncryption(disabledConfig, new KmsClient(disabledConfig)),
+                    new EnvelopeEncryption(disabledConfig, new LocalKeyManager(disabledConfig)),
                     new MerkleChain(),
                     new LogSerializer(),
                     mockTransport
@@ -154,14 +152,13 @@ class LogProcessorTest {
                     .piiMaskingEnabled(false)
                     .encryptionEnabled(false)
                     .integrityEnabled(false)
-                    .kmsFallbackEnabled(true)
                     .fallbackDirectory(tempDir.toString())
                     .build();
 
             LogProcessor minimalProcessor = new LogProcessor(
                     disabledConfig,
                     new PiiMasker(disabledConfig),
-                    new EnvelopeEncryption(disabledConfig, new KmsClient(disabledConfig)),
+                    new EnvelopeEncryption(disabledConfig, new LocalKeyManager(disabledConfig)),
                     new MerkleChain(),
                     new LogSerializer(),
                     mockTransport

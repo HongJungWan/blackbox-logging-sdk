@@ -6,7 +6,7 @@ import io.github.hongjungwan.blackbox.core.internal.MerkleChain;
 import io.github.hongjungwan.blackbox.core.security.PiiMasker;
 import io.github.hongjungwan.blackbox.core.internal.LogProcessor;
 import io.github.hongjungwan.blackbox.core.security.EnvelopeEncryption;
-import io.github.hongjungwan.blackbox.core.security.KmsClient;
+import io.github.hongjungwan.blackbox.core.security.LocalKeyManager;
 import io.github.hongjungwan.blackbox.core.internal.LogSerializer;
 import io.github.hongjungwan.blackbox.core.internal.ResilientLogTransport;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -61,7 +61,6 @@ class EndToEndTest {
                 .piiMaskingEnabled(true)
                 .encryptionEnabled(true)
                 .integrityEnabled(true)
-                .kmsFallbackEnabled(true)
                 .kafkaBootstrapServers(kafka.getBootstrapServers())
                 .kafkaTopic(testTopic)
                 .kafkaAcks("all")
@@ -72,8 +71,8 @@ class EndToEndTest {
         transport = new ResilientLogTransport(config, serializer);
 
         PiiMasker piiMasker = new PiiMasker(config);
-        KmsClient kmsClient = new KmsClient(config);
-        EnvelopeEncryption encryption = new EnvelopeEncryption(config, kmsClient);
+        LocalKeyManager keyManager = new LocalKeyManager(config);
+        EnvelopeEncryption encryption = new EnvelopeEncryption(config, keyManager);
         MerkleChain merkleChain = new MerkleChain();
 
         processor = new LogProcessor(

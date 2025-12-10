@@ -12,19 +12,45 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * @Mask 어노테이션 기반 자동 PII 마스킹 처리기. 리플렉션 메타데이터 캐싱으로 성능 최적화.
+ * @Mask 어노테이션 기반 자동 PII 마스킹 처리기.
+ *
+ * 리플렉션 메타데이터 캐싱으로 성능 최적화.
+ * 비상 모드 지원: emergency=true 필드는 마스킹 대신 공개키 암호화.
  */
 @Slf4j
 public class AnnotationMaskingProcessor {
 
-    // 필드 메타데이터 캐시 (Class -> 필드명 -> MaskType)
-    private final ConcurrentHashMap<Class<?>, Map<String, MaskType>> fieldCache = new ConcurrentHashMap<>();
+    // 필드 메타데이터 캐시 (Class -> 필드명 -> MaskFieldInfo)
+    private final ConcurrentHashMap<Class<?>, Map<String, MaskFieldInfo>> fieldCache = new ConcurrentHashMap<>();
 
     // 메서드 메타데이터 캐시 (@Mask가 적용된 getter)
     private final ConcurrentHashMap<Class<?>, Map<String, MethodMaskInfo>> methodCache = new ConcurrentHashMap<>();
 
+    // 비상 모드 암호화기 (null 가능 - 비활성화 시)
+    private volatile EmergencyEncryptor emergencyEncryptor;
+
+    /**
+     * EmergencyEncryptor 설정. 비상 모드 지원을 위해 필요.
+     *
+     * @param encryptor 비상 모드 암호화기 (null 시 비상 모드 비활성화)
+     */
+    public void setEmergencyEncryptor(EmergencyEncryptor encryptor) {
+        this.emergencyEncryptor = encryptor;
+        log.info("EmergencyEncryptor {} for AnnotationMaskingProcessor",
+                encryptor != null ? "configured" : "disabled");
+    }
+
+    /**
+     * 비상 모드 활성화 여부 확인.
+     */
+    public boolean isEmergencyModeEnabled() {
+        EmergencyEncryptor enc = emergencyEncryptor;
+        return enc != null && enc.isEnabled();
+    }
+
     /**
      * 객체의 @Mask 어노테이션 필드를 마스킹하여 Map으로 반환.
+     * 비상 모드 활성화 시 emergency=true 필드는 암호화된 원본 포함.
      */
     public <T> Map<String, Object> process(T obj) {
         if (obj == null) {
@@ -34,7 +60,7 @@ public class AnnotationMaskingProcessor {
         Class<?> clazz = obj.getClass();
         Map<String, Object> result = new LinkedHashMap<>();
 
-        Map<String, MaskType> fieldMasks = fieldCache.computeIfAbsent(clazz, this::scanFields);
+        Map<String, MaskFieldInfo> fieldMasks = fieldCache.computeIfAbsent(clazz, this::scanFields);
         Map<String, MethodMaskInfo> methodMasks = methodCache.computeIfAbsent(clazz, this::scanMethods);
 
         for (Field field : clazz.getDeclaredFields()) {
@@ -45,9 +71,9 @@ public class AnnotationMaskingProcessor {
             String fieldName = field.getName();
             Object value = getFieldValue(obj, field);
 
-            MaskType maskType = fieldMasks.get(fieldName);
-            if (maskType != null && value instanceof String) {
-                result.put(fieldName, applyMask((String) value, maskType));
+            MaskFieldInfo maskInfo = fieldMasks.get(fieldName);
+            if (maskInfo != null && value instanceof String strValue) {
+                result.put(fieldName, processFieldValue(strValue, maskInfo));
             } else {
                 result.put(fieldName, value);
             }
@@ -62,8 +88,8 @@ public class AnnotationMaskingProcessor {
             }
 
             Object value = invokeMethod(obj, info.method);
-            if (value instanceof String) {
-                result.put(propertyName, applyMask((String) value, info.maskType));
+            if (value instanceof String strValue) {
+                result.put(propertyName, processMethodValue(strValue, info));
             } else {
                 result.put(propertyName, value);
             }
@@ -73,7 +99,36 @@ public class AnnotationMaskingProcessor {
     }
 
     /**
+     * 필드 값 처리: 일반 마스킹 또는 비상 모드 암호화.
+     */
+    private Object processFieldValue(String value, MaskFieldInfo maskInfo) {
+        String maskedValue = applyMask(value, maskInfo.maskType);
+
+        // 비상 모드 + emergency=true 필드
+        if (isEmergencyModeEnabled() && maskInfo.emergencyEnabled) {
+            return emergencyEncryptor.createEmergencyResult(value, maskedValue).toJson();
+        }
+
+        return maskedValue;
+    }
+
+    /**
+     * 메서드 값 처리: 일반 마스킹 또는 비상 모드 암호화.
+     */
+    private Object processMethodValue(String value, MethodMaskInfo maskInfo) {
+        String maskedValue = applyMask(value, maskInfo.maskType);
+
+        // 비상 모드 + emergency=true 메서드
+        if (isEmergencyModeEnabled() && maskInfo.emergencyEnabled) {
+            return emergencyEncryptor.createEmergencyResult(value, maskedValue).toJson();
+        }
+
+        return maskedValue;
+    }
+
+    /**
      * 객체를 마스킹하여 동일 타입의 새 인스턴스로 반환. 실패 시 null.
+     * 비상 모드 시 emergency=true 필드는 마스킹된 값 저장 (인스턴스에는 암호화 불가).
      */
     @SuppressWarnings("unchecked")
     public <T> T processToObject(T obj) {
@@ -85,7 +140,7 @@ public class AnnotationMaskingProcessor {
 
         try {
             T newInstance = (T) clazz.getDeclaredConstructor().newInstance();
-            Map<String, MaskType> fieldMasks = fieldCache.computeIfAbsent(clazz, this::scanFields);
+            Map<String, MaskFieldInfo> fieldMasks = fieldCache.computeIfAbsent(clazz, this::scanFields);
 
             for (Field field : clazz.getDeclaredFields()) {
                 if (Modifier.isStatic(field.getModifiers()) || Modifier.isFinal(field.getModifiers())) {
@@ -96,9 +151,10 @@ public class AnnotationMaskingProcessor {
                 String fieldName = field.getName();
                 Object value = field.get(obj);
 
-                MaskType maskType = fieldMasks.get(fieldName);
-                if (maskType != null && value instanceof String) {
-                    field.set(newInstance, applyMask((String) value, maskType));
+                MaskFieldInfo maskInfo = fieldMasks.get(fieldName);
+                if (maskInfo != null && value instanceof String strValue) {
+                    // 인스턴스 반환 시에는 마스킹된 값만 저장 (암호화 JSON은 Map에서만)
+                    field.set(newInstance, applyMask(strValue, maskInfo.maskType));
                 } else {
                     field.set(newInstance, value);
                 }
@@ -112,21 +168,21 @@ public class AnnotationMaskingProcessor {
         }
     }
 
-    /** 클래스의 @Mask 어노테이션 필드 스캔. */
-    private Map<String, MaskType> scanFields(Class<?> clazz) {
-        Map<String, MaskType> masks = new LinkedHashMap<>();
+    /** 클래스의 @Mask 어노테이션 필드 스캔 (emergency 속성 포함). */
+    private Map<String, MaskFieldInfo> scanFields(Class<?> clazz) {
+        Map<String, MaskFieldInfo> masks = new LinkedHashMap<>();
 
         for (Field field : clazz.getDeclaredFields()) {
             Mask mask = field.getAnnotation(Mask.class);
             if (mask != null) {
-                masks.put(field.getName(), mask.value());
+                masks.put(field.getName(), new MaskFieldInfo(mask.value(), mask.emergency()));
             }
         }
 
         return masks;
     }
 
-    /** 클래스의 @Mask 어노테이션 getter 메서드 스캔. */
+    /** 클래스의 @Mask 어노테이션 getter 메서드 스캔 (emergency 속성 포함). */
     private Map<String, MethodMaskInfo> scanMethods(Class<?> clazz) {
         Map<String, MethodMaskInfo> masks = new LinkedHashMap<>();
 
@@ -134,7 +190,7 @@ public class AnnotationMaskingProcessor {
             Mask mask = method.getAnnotation(Mask.class);
             if (mask != null && isGetter(method)) {
                 String propertyName = extractPropertyName(method);
-                masks.put(propertyName, new MethodMaskInfo(method, mask.value()));
+                masks.put(propertyName, new MethodMaskInfo(method, mask.value(), mask.emergency()));
             }
         }
 
@@ -352,6 +408,9 @@ public class AnnotationMaskingProcessor {
         methodCache.clear();
     }
 
-    /** 메서드와 MaskType 정보를 담는 내부 레코드. */
-    private record MethodMaskInfo(Method method, MaskType maskType) {}
+    /** 필드 마스킹 정보를 담는 내부 레코드. */
+    private record MaskFieldInfo(MaskType maskType, boolean emergencyEnabled) {}
+
+    /** 메서드와 마스킹 정보를 담는 내부 레코드. */
+    private record MethodMaskInfo(Method method, MaskType maskType, boolean emergencyEnabled) {}
 }

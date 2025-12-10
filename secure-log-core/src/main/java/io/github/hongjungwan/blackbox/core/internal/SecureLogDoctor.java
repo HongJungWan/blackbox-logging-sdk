@@ -4,20 +4,15 @@ import io.github.hongjungwan.blackbox.api.config.SecureLogConfig;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * SDK 자가 진단. KMS 연결, 디스크 쓰기 권한, Off-heap 메모리 할당 검사.
+ * SDK 자가 진단. 키 파일 접근, 디스크 쓰기 권한, Off-heap 메모리 할당 검사.
  */
 @Slf4j
 public class SecureLogDoctor {
@@ -35,7 +30,7 @@ public class SecureLogDoctor {
 
         results.clear();
 
-        results.add(checkKmsConnectivity());
+        results.add(checkKeyFileAccess());
         results.add(checkDiskWritePermission());
         results.add(checkOffHeapMemory());
 
@@ -54,34 +49,34 @@ public class SecureLogDoctor {
         return report;
     }
 
-    /** 검사 1: KMS 연결 */
-    private DiagnosticResult checkKmsConnectivity() {
-        if (config.getKmsEndpoint() == null) {
-            return DiagnosticResult.warning("KMS Connectivity", "KMS endpoint not configured - using fallback encryption");
-        }
-
+    /** 검사 1: 키 파일 접근 가능 여부 */
+    private DiagnosticResult checkKeyFileAccess() {
         try {
-            HttpClient client = HttpClient.newBuilder()
-                    .connectTimeout(Duration.ofMillis(config.getKmsTimeoutMs()))
-                    .build();
+            Path keyDir = getKeyDirectory();
 
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(config.getKmsEndpoint() + "/health"))
-                    .timeout(Duration.ofMillis(config.getKmsTimeoutMs()))
-                    .GET()
-                    .build();
-
-            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-
-            if (response.statusCode() == 200) {
-                return DiagnosticResult.success("KMS Connectivity", "Successfully connected to KMS");
-            } else {
-                return DiagnosticResult.failure("KMS Connectivity", "KMS returned status: " + response.statusCode());
+            if (!Files.exists(keyDir)) {
+                Files.createDirectories(keyDir);
             }
 
+            if (Files.isWritable(keyDir)) {
+                return DiagnosticResult.success("Key File Access",
+                        "Key directory is accessible: " + keyDir);
+            } else {
+                return DiagnosticResult.failure("Key File Access",
+                        "Key directory is not writable: " + keyDir);
+            }
         } catch (Exception e) {
-            return DiagnosticResult.failure("KMS Connectivity", "Failed to connect: " + e.getMessage());
+            return DiagnosticResult.failure("Key File Access",
+                    "Failed to access key directory: " + e.getMessage());
         }
+    }
+
+    private Path getKeyDirectory() {
+        String fallbackDir = config.getFallbackDirectory();
+        if (fallbackDir != null && !fallbackDir.isBlank()) {
+            return Paths.get(fallbackDir);
+        }
+        return Paths.get(System.getProperty("user.home"));
     }
 
     /** 검사 2: 디스크 쓰기 권한 */

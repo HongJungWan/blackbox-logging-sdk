@@ -4,7 +4,7 @@ import io.github.hongjungwan.blackbox.api.config.SecureLogConfig;
 import io.github.hongjungwan.blackbox.api.domain.LogEntry;
 import io.github.hongjungwan.blackbox.core.internal.MerkleChain;
 import io.github.hongjungwan.blackbox.core.security.EnvelopeEncryption;
-import io.github.hongjungwan.blackbox.core.security.KmsClient;
+import io.github.hongjungwan.blackbox.core.security.LocalKeyManager;
 import io.github.hongjungwan.blackbox.core.security.PiiMasker;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -52,12 +52,11 @@ class EncryptionPerformanceTest {
     @BeforeAll
     void setUpAll() {
         config = SecureLogConfig.builder()
-                .kmsFallbackEnabled(true)
                 .piiPatterns(List.of("rrn", "credit_card", "password", "ssn"))
                 .build();
 
-        KmsClient kmsClient = new KmsClient(config);
-        envelopeEncryption = new EnvelopeEncryption(config, kmsClient);
+        LocalKeyManager keyManager = new LocalKeyManager(config);
+        envelopeEncryption = new EnvelopeEncryption(config, keyManager);
         piiMasker = new PiiMasker(config);
         merkleChain = new MerkleChain();
 
