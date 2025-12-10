@@ -125,7 +125,7 @@ When buffer is full, `VirtualAsyncAppender.handleBackpressure()` saves events to
 - `MetricsExporter` - Prometheus/JSON format export
 
 ### Security Model
-- **Envelope Encryption**: DEK (AES-256-GCM) + KEK (from KMS), 1-hour DEK rotation with TOCTOU-safe lock
+- **Envelope Encryption**: DEK (AES-256-GCM) + KEK (from LocalKeyManager), 1-hour DEK rotation with TOCTOU-safe lock
 - **Integrity**: SHA-256 Hash Chain with canonical JSON serialization (Jackson `ORDER_MAP_ENTRIES_BY_KEYS`)
 - **Crypto-Shredding**: DEK destruction via Destroyable interface (JVM limitations documented)
 - **PII Masking**: Field name-based auto-detection + annotation-based masking (message + payload)
@@ -171,6 +171,7 @@ String maskedValue = masker.maskValue("123456-1234567", MaskType.RRN);  // Direc
 - `api/annotation/MaskType.java` - Masking type enum
 - `core/security/AnnotationMaskingProcessor.java` - Reflection-based processor with metadata caching
 - `core/security/EmergencyEncryptor.java` - RSA-OAEP public key encryption for emergency mode
+- `core/security/LocalKeyManager.java` - Local KEK management with file persistence (chmod 600)
 
 ### AOP-Based Audit Context (Who/Whom/Why)
 Automatically capture audit context using `@AuditContext` annotation:
@@ -228,7 +229,7 @@ SDK applies defensive null checks at critical points:
 - **Async completion waiting**: Always call `.join()` on `CompletableFuture` when retry is needed
 
 ### Cache Synchronization
-- `KmsClient`: `CachedKekHolder` inner class for atomic KEK + timestamp reads
+- `LocalKeyManager`: `CachedKekHolder` inner class for atomic KEK + timestamp reads
 - `VirtualAsyncAppender`: `consumerFinished` AtomicBoolean + `CountDownLatch` for reliable shutdown signaling
 
 ### Key Components
@@ -307,8 +308,7 @@ secure-log-core/src/
 └── integrationTest/java/            # Integration tests (Docker required)
     └── io/.../integration/
         ├── EndToEndTest.java
-        ├── KafkaIntegrationTest.java
-        └── KmsIntegrationTest.java
+        └── KafkaIntegrationTest.java
 ```
 
 ### Commands
@@ -381,7 +381,7 @@ io.github.hongjungwan.blackbox
 ├── core/
 │   ├── internal/           # Core implementations (LogProcessor, VirtualAsyncAppender, etc.)
 │   ├── resilience/         # CircuitBreaker, RetryPolicy
-│   └── security/           # EnvelopeEncryption, KmsClient, PiiMasker, EmergencyEncryptor
+│   └── security/           # EnvelopeEncryption, LocalKeyManager, PiiMasker, EmergencyEncryptor
 ├── spi/                    # Extension points (EncryptionProvider, MaskingStrategy, TransportProvider)
 └── starter/                # Spring Boot Starter (secure-log-starter module)
     └── aop/                # AuditContextAspect, AuditUserExtractor
