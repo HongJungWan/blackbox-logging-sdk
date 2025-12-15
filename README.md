@@ -14,7 +14,7 @@
 "로그, 남기는 건 필수지만 기다리는 건 싫으니까요."
 
 보안이 강력한 로그 시스템은 느려지기 쉽습니다. 암호화와 무결성 검증 비용이 곧 레이턴시가 되기 때문입니다.
-우리는 **Java 21의 Virtual Thread**와 **Lock-free Queue**를 도입해 이 문제를 해결했습니다.
+우리는 **Java 21의 Virtual Thread**와 표준 동시성 라이브러리(ReentrantLock, ConcurrentHashMap)를 활용해 이 문제를 해결했습니다.
 
 물론, 속도만 챙긴 것은 아닙니다. 제가 개발을 하며 겪은 보안 고민들도 함께 담았습니다.
 
@@ -37,6 +37,8 @@ KBS SDK를 사용하면 시스템 부하가 높아져도 로그는 메인 로직
 
 <img src="https://github.com/user-attachments/assets/3dd44c8f-8a36-4000-b0a5-e250810f2ed0" width="450">
 
+<br>
+
 ### 2. @Mask 어노테이션 마스킹
 
 > DTO 필드에 어노테이션만 붙이면 리플렉션 프로세서가 자동으로 마스킹을 수행합니다. 
@@ -55,6 +57,8 @@ KBS SDK를 사용하면 시스템 부하가 높아져도 로그는 메인 로직
   }
 ```
 
+<br>
+
 ### 3. 비상용 복호화 로깅 (Break-glass)
 
 > "마스킹된 데이터, 사고 분석 시 원본이 필요하면?" 이런 고민을 해결합니다. 
@@ -65,6 +69,8 @@ KBS SDK를 사용하면 시스템 부하가 높아져도 로그는 메인 로직
   @Mask(value = MaskType.RRN, emergency = true)
   private String residentNumber;        // 결과: {"display":"123456-*******", "encrypted":"Base64..."}
 ```
+
+<br>
 
 ### 4. AOP 기반 감사 문맥
 
@@ -85,6 +91,8 @@ KBS SDK를 사용하면 시스템 부하가 높아져도 로그는 메인 로직
   }
 ```
 
+<br>
+
 ### 5. 위변조 방지
 
 > 로그의 신뢰성을 위해 블록체인의 Hash Chain 기술을 적용했습니다. 
@@ -94,6 +102,8 @@ KBS SDK를 사용하면 시스템 부하가 높아져도 로그는 메인 로직
 
 <img src="https://github.com/user-attachments/assets/5adfc1d7-32ac-456d-a6bf-44cd89867d5d" width="450">
 
+<br>
+
 ### 6. 암호화
 
 > 저장되는 순간 AES-256-GCM 암호화 방식이 적용됩니다. 
@@ -102,6 +112,8 @@ KBS SDK를 사용하면 시스템 부하가 높아져도 로그는 메인 로직
 📌 이미지 업데이트 예정
 
 <img src="https://github.com/user-attachments/assets/2c2ae06c-c7d1-4745-9f55-51cfc9e72e74" width="450">
+
+<br>
 
 ### 7. Crypto-Shredding
 
