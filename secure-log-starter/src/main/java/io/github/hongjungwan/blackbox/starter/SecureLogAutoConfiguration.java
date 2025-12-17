@@ -13,7 +13,7 @@ import io.github.hongjungwan.blackbox.core.internal.LogProcessor;
 import io.github.hongjungwan.blackbox.core.security.EnvelopeEncryption;
 import io.github.hongjungwan.blackbox.core.security.LocalKeyManager;
 import io.github.hongjungwan.blackbox.core.internal.LogSerializer;
-import io.github.hongjungwan.blackbox.core.internal.ResilientLogTransport;
+import io.github.hongjungwan.blackbox.core.internal.ConsoleLogTransport;
 import io.github.hongjungwan.blackbox.starter.aop.AuditContextAspect;
 import io.github.hongjungwan.blackbox.starter.aop.AuditUserExtractor;
 import io.github.hongjungwan.blackbox.starter.aop.SecurityContextUserExtractor;
@@ -34,6 +34,7 @@ import org.springframework.context.annotation.Import;
 
 /**
  * SecureHR Logging SDK Spring Boot 자동 설정.
+ * Console 출력을 기본으로 사용.
  */
 @AutoConfiguration
 @EnableConfigurationProperties(SecureLogProperties.class)
@@ -52,9 +53,6 @@ public class SecureLogAutoConfiguration {
                 .piiMaskingEnabled(properties.getPiiMasking().isEnabled())
                 .piiPatterns(properties.getPiiMasking().getPatterns())
                 .encryptionEnabled(properties.getSecurity().isEncryptionEnabled())
-                .kafkaBootstrapServers(properties.getKafka().getBootstrapServers())
-                .kafkaTopic(properties.getKafka().getTopic())
-                .kafkaRetries(properties.getKafka().getRetries())
                 .fallbackDirectory(properties.getFallbackDirectory())
                 .integrityEnabled(properties.getSecurity().isIntegrityEnabled())
                 .build();
@@ -118,8 +116,8 @@ public class SecureLogAutoConfiguration {
 
     @Bean(destroyMethod = "close")
     @ConditionalOnMissingBean
-    public ResilientLogTransport logTransport(SecureLogConfig config, LogSerializer serializer) {
-        return new ResilientLogTransport(config, serializer);
+    public ConsoleLogTransport logTransport(SecureLogConfig config, LogSerializer serializer) {
+        return new ConsoleLogTransport(config, serializer);
     }
 
     @Bean
@@ -129,10 +127,9 @@ public class SecureLogAutoConfiguration {
             PiiMasker piiMasker,
             EnvelopeEncryption encryption,
             MerkleChain merkleChain,
-            LogSerializer serializer,
-            ResilientLogTransport transport
+            ConsoleLogTransport transport
     ) {
-        return new LogProcessor(config, piiMasker, encryption, merkleChain, serializer, transport);
+        return new LogProcessor(config, piiMasker, encryption, merkleChain, transport);
     }
 
     @Bean
@@ -179,7 +176,7 @@ public class SecureLogAutoConfiguration {
 
         @Override
         public void start() {
-            log.info("Starting SecureHR Logging SDK v8.0.0...");
+            log.info("Starting SecureHR Logging SDK v8.0.0 (Console Output Mode)...");
 
             SecureLogDoctor.DiagnosticReport report = doctor.diagnose();
 
@@ -210,7 +207,7 @@ public class SecureLogAutoConfiguration {
             }
 
             running = true;
-            log.info("SecureHR Logging SDK started successfully in {} mode", config.getMode());
+            log.info("SecureHR Logging SDK started successfully in {} mode (Console Output)", config.getMode());
         }
 
         @Override

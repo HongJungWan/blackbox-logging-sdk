@@ -41,16 +41,6 @@ class SecureLogConfigTest {
         }
 
         @Test
-        @DisplayName("기본 Kafka 토픽이 설정되어야 한다")
-        void shouldHaveDefaultKafkaTopic() {
-            // when
-            SecureLogConfig config = SecureLogConfig.defaultConfig();
-
-            // then
-            assertThat(config.getKafkaTopic()).isEqualTo("secure-hr-logs");
-        }
-
-        @Test
         @DisplayName("기본 폴백 디렉토리가 설정되어야 한다")
         void shouldHaveDefaultFallbackDirectory() {
             // when
@@ -62,53 +52,6 @@ class SecureLogConfigTest {
     }
 
     @Nested
-    @DisplayName("Kafka 설정")
-    class KafkaConfigTests {
-
-        @Test
-        @DisplayName("Kafka 기본 설정이 올바르게 적용되어야 한다")
-        void shouldHaveCorrectKafkaDefaults() {
-            // when
-            SecureLogConfig config = SecureLogConfig.defaultConfig();
-
-            // then
-            assertThat(config.getKafkaRetries()).isEqualTo(3);
-            assertThat(config.getKafkaAcks()).isEqualTo("all");
-            assertThat(config.getKafkaBatchSize()).isEqualTo(16384);
-            assertThat(config.getKafkaLingerMs()).isEqualTo(1);
-            assertThat(config.getKafkaCompressionType()).isEqualTo("zstd");
-            assertThat(config.getKafkaMaxBlockMs()).isEqualTo(5000);
-            assertThat(config.getKafkaSecurityProtocol()).isEqualTo("PLAINTEXT");
-        }
-
-        @Test
-        @DisplayName("Kafka 설정을 커스터마이징할 수 있어야 한다")
-        void shouldAllowKafkaCustomization() {
-            // when
-            SecureLogConfig config = SecureLogConfig.builder()
-                    .kafkaBootstrapServers("localhost:9092")
-                    .kafkaTopic("custom-topic")
-                    .kafkaAcks("1")
-                    .kafkaBatchSize(32768)
-                    .kafkaLingerMs(5)
-                    .kafkaCompressionType("lz4")
-                    .kafkaMaxBlockMs(10000)
-                    .kafkaSecurityProtocol("SSL")
-                    .build();
-
-            // then
-            assertThat(config.getKafkaBootstrapServers()).isEqualTo("localhost:9092");
-            assertThat(config.getKafkaTopic()).isEqualTo("custom-topic");
-            assertThat(config.getKafkaAcks()).isEqualTo("1");
-            assertThat(config.getKafkaBatchSize()).isEqualTo(32768);
-            assertThat(config.getKafkaLingerMs()).isEqualTo(5);
-            assertThat(config.getKafkaCompressionType()).isEqualTo("lz4");
-            assertThat(config.getKafkaMaxBlockMs()).isEqualTo(10000);
-            assertThat(config.getKafkaSecurityProtocol()).isEqualTo("SSL");
-        }
-    }
-
-    @Nested
     @DisplayName("프로덕션 설정")
     class ProductionConfigTests {
 
@@ -116,13 +59,10 @@ class SecureLogConfigTest {
         @DisplayName("프로덕션 설정이 올바르게 구성되어야 한다")
         void shouldCreateCorrectProductionConfig() {
             // when
-            SecureLogConfig config = SecureLogConfig.productionConfig("kafka:9092");
+            SecureLogConfig config = SecureLogConfig.productionConfig();
 
             // then
             assertThat(config.getMode()).isEqualTo(SecureLogConfig.LoggingMode.ASYNC);
-            assertThat(config.getKafkaBootstrapServers()).isEqualTo("kafka:9092");
-            assertThat(config.getKafkaAcks()).isEqualTo("all");
-            assertThat(config.getKafkaCompressionType()).isEqualTo("zstd");
             assertThat(config.isEncryptionEnabled()).isTrue();
             assertThat(config.isPiiMaskingEnabled()).isTrue();
             assertThat(config.isIntegrityEnabled()).isTrue();
@@ -175,6 +115,32 @@ class SecureLogConfigTest {
             // then
             assertThat(syncConfig.getMode()).isEqualTo(SecureLogConfig.LoggingMode.SYNC);
             assertThat(fallbackConfig.getMode()).isEqualTo(SecureLogConfig.LoggingMode.FALLBACK);
+        }
+
+        @Test
+        @DisplayName("버퍼 크기와 소비자 스레드 수를 설정할 수 있어야 한다")
+        void shouldAllowCustomBufferAndThreadSettings() {
+            // when
+            SecureLogConfig config = SecureLogConfig.builder()
+                    .bufferSize(16384)
+                    .consumerThreads(4)
+                    .build();
+
+            // then
+            assertThat(config.getBufferSize()).isEqualTo(16384);
+            assertThat(config.getConsumerThreads()).isEqualTo(4);
+        }
+
+        @Test
+        @DisplayName("커스텀 폴백 디렉토리를 설정할 수 있어야 한다")
+        void shouldAllowCustomFallbackDirectory() {
+            // when
+            SecureLogConfig config = SecureLogConfig.builder()
+                    .fallbackDirectory("/custom/fallback/path")
+                    .build();
+
+            // then
+            assertThat(config.getFallbackDirectory()).isEqualTo("/custom/fallback/path");
         }
     }
 }

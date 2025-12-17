@@ -8,6 +8,7 @@ import java.util.List;
 
 /**
  * SecureHR Logging SDK 설정 Properties (prefix: secure-hr.logging).
+ * Console 출력을 기본으로 사용.
  */
 @Data
 @ConfigurationProperties(prefix = "secure-hr.logging")
@@ -31,13 +32,10 @@ public class SecureLogProperties {
     /** 보안 설정 */
     private SecurityProperties security = new SecurityProperties();
 
-    /** Kafka 설정 */
-    private KafkaProperties kafka = new KafkaProperties();
-
     /** 감사(Audit) 설정 */
     private AuditProperties audit = new AuditProperties();
 
-    /** Circuit Breaker 발동 시 Fallback 저장 디렉토리 */
+    /** 오류 발생 시 Fallback 저장 디렉토리 */
     private String fallbackDirectory = "logs/fallback";
 
     @Data
@@ -62,18 +60,5 @@ public class SecureLogProperties {
 
         /** 감사 로그 기록 활성화 여부 */
         private boolean logEnabled = true;
-    }
-
-    @Data
-    public static class KafkaProperties {
-        private String bootstrapServers;
-        private String topic = "secure-hr-logs";
-        private int retries = 3;
-        private String acks = "all";
-        private int batchSize = 16384;
-        private int lingerMs = 1;
-        private String compressionType = "zstd";
-        private long maxBlockMs = 5000;
-        private String securityProtocol = "PLAINTEXT";
     }
 }

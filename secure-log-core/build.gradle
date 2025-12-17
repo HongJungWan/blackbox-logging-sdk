@@ -42,9 +42,6 @@ dependencies {
 	// Security/Crypto
 	implementation 'org.bouncycastle:bcprov-jdk18on:1.79'
 
-	// Kafka client
-	implementation 'org.apache.kafka:kafka-clients:3.7.0'
-
 	// Lombok for development
 	compileOnly 'org.projectlombok:lombok:1.18.36'
 	annotationProcessor 'org.projectlombok:lombok:1.18.36'
@@ -56,7 +53,6 @@ dependencies {
 
 	// Testcontainers for integration tests
 	testImplementation 'org.testcontainers:testcontainers:1.19.7'
-	testImplementation 'org.testcontainers:kafka:1.19.7'
 	testImplementation 'org.testcontainers:junit-jupiter:1.19.7'
 
 	// JMH for performance benchmarks

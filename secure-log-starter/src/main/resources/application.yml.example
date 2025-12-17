@@ -12,6 +12,9 @@ secure-hr:
     # Ring buffer size for async logging
     buffer-size: 8192
 
+    # Number of consumer threads for async processing
+    consumer-threads: 2
+
     # PII Masking Configuration
     pii-masking:
       enabled: true
@@ -32,22 +35,6 @@ secure-hr:
       # Emergency mode: RSA public key for emergency decryption (Base64, X.509)
       # emergency-public-key: "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A..."
 
-    # Semantic Deduplication
-    deduplication-enabled: true
-    deduplication-window-ms: 1000
-
-    # Kafka Configuration (primary transport)
-    kafka:
-      bootstrap-servers: "localhost:9092"
-      topic: "secure-hr-logs"
-      retries: 3
-      acks: "all"
-      batch-size: 16384
-      linger-ms: 1
-      compression-type: "zstd"
-      max-block-ms: 5000
-      security-protocol: "PLAINTEXT"
-
     # Fallback Configuration (circuit breaker, key storage)
     fallback-directory: "logs/fallback"
 
@@ -64,12 +51,6 @@ secure-hr:
     security:
       encryption-enabled: true
       integrity-enabled: true
-    kafka:
-      bootstrap-servers: "${KAFKA_BOOTSTRAP_SERVERS:kafka-prod:9092}"
-      acks: "all"
-      compression-type: "zstd"
-      # For SSL/SASL authentication
-      # security-protocol: "SASL_SSL"
 
 ---
 spring:
@@ -83,5 +64,3 @@ secure-hr:
     security:
       encryption-enabled: false  # Disabled for development
       integrity-enabled: true
-    kafka:
-      bootstrap-servers: "localhost:9092"

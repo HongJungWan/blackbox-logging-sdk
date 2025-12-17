@@ -8,67 +8,52 @@ import io.github.hongjungwan.blackbox.core.internal.LogProcessor;
 import io.github.hongjungwan.blackbox.core.security.EnvelopeEncryption;
 import io.github.hongjungwan.blackbox.core.security.LocalKeyManager;
 import io.github.hongjungwan.blackbox.core.internal.LogSerializer;
-import io.github.hongjungwan.blackbox.core.internal.ResilientLogTransport;
-import org.apache.kafka.clients.consumer.ConsumerConfig;
-import org.apache.kafka.clients.consumer.ConsumerRecords;
-import org.apache.kafka.clients.consumer.KafkaConsumer;
-import org.apache.kafka.common.serialization.ByteArrayDeserializer;
-import org.apache.kafka.common.serialization.StringDeserializer;
+import io.github.hongjungwan.blackbox.core.internal.ConsoleLogTransport;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.*;
-import org.testcontainers.containers.KafkaContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
 
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Duration;
-import java.util.Collections;
 import java.util.Map;
-import java.util.Properties;
-import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * End-to-End Integration Test
- * Tests the complete pipeline from log entry creation to Kafka delivery
+ * Tests the complete pipeline from log entry creation to Console (stdout) delivery
  */
-@Testcontainers
-@DisplayName("E2E 통합 테스트")
+@DisplayName("E2E 통합 테스트 (Console Output)")
 class EndToEndTest {
-
-    private String testTopic;
-
-    @Container
-    static KafkaContainer kafka = new KafkaContainer(
-            DockerImageName.parse("confluentinc/cp-kafka:7.5.0")
-    );
 
     private Path tempDir;
     private LogProcessor processor;
-    private ResilientLogTransport transport;
+    private ConsoleLogTransport transport;
     private SecureLogConfig config;
     private LogSerializer serializer;
+    private ByteArrayOutputStream outputCapture;
+    private PrintStream originalOut;
+    private ObjectMapper objectMapper;
 
     @BeforeEach
     void setUp() throws Exception {
         tempDir = Files.createTempDirectory("e2e-test");
-
-        testTopic = "e2e-test-" + UUID.randomUUID().toString().substring(0, 8);
+        outputCapture = new ByteArrayOutputStream();
+        originalOut = System.out;
+        objectMapper = new ObjectMapper();
 
         config = SecureLogConfig.builder()
                 .piiMaskingEnabled(true)
                 .encryptionEnabled(true)
                 .integrityEnabled(true)
-                .kafkaBootstrapServers(kafka.getBootstrapServers())
-                .kafkaTopic(testTopic)
-                .kafkaAcks("all")
                 .fallbackDirectory(tempDir.toString())
                 .build();
 
         serializer = new LogSerializer();
-        transport = new ResilientLogTransport(config, serializer);
+        PrintStream captureStream = new PrintStream(outputCapture);
+        transport = new ConsoleLogTransport(config, serializer, captureStream);
 
         PiiMasker piiMasker = new PiiMasker(config);
         LocalKeyManager keyManager = new LocalKeyManager(config);
@@ -80,13 +65,13 @@ class EndToEndTest {
                 piiMasker,
                 encryption,
                 merkleChain,
-                serializer,
                 transport
         );
     }
 
     @AfterEach
     void tearDown() throws Exception {
+        System.setOut(originalOut);
         if (transport != null) {
             transport.close();
         }
@@ -107,8 +92,8 @@ class EndToEndTest {
     class FullPipelineTests {
 
         @Test
-        @DisplayName("로그 엔트리가 전체 파이프라인을 통과하여 Kafka로 전송되어야 한다")
-        void shouldProcessAndSendLogToKafka() throws Exception {
+        @DisplayName("로그 엔트리가 전체 파이프라인을 통과하여 Console로 출력되어야 한다")
+        void shouldProcessAndOutputLogToConsole() throws Exception {
             // given
             LogEntry entry = LogEntry.builder()
                     .timestamp(System.currentTimeMillis())
@@ -123,20 +108,21 @@ class EndToEndTest {
             // when
             processor.process(entry);
 
-            Thread.sleep(2000);
-
             // then
-            try (KafkaConsumer<String, byte[]> consumer = createConsumer()) {
-                consumer.subscribe(Collections.singletonList(testTopic));
-                ConsumerRecords<String, byte[]> records = consumer.poll(Duration.ofSeconds(10));
+            String output = outputCapture.toString();
+            assertThat(output).isNotEmpty();
 
-                assertThat(records.count()).isGreaterThan(0);
-            }
+            JsonNode json = objectMapper.readTree(output.trim());
+            assertThat(json.has("timestamp")).isTrue();
+            assertThat(json.has("level")).isTrue();
+            assertThat(json.get("level").asText()).isEqualTo("INFO");
+            assertThat(json.get("traceId").asText()).isEqualTo("trace-e2e-001");
+            assertThat(json.get("spanId").asText()).isEqualTo("span-e2e-001");
         }
 
         @Test
-        @DisplayName("민감정보가 마스킹된 후 전송되어야 한다")
-        void shouldMaskSensitiveDataBeforeSending() throws Exception {
+        @DisplayName("민감정보가 마스킹된 후 출력되어야 한다")
+        void shouldMaskSensitiveDataBeforeOutput() throws Exception {
             // given
             LogEntry entry = LogEntry.builder()
                     .timestamp(System.currentTimeMillis())
@@ -152,15 +138,54 @@ class EndToEndTest {
             // when
             processor.process(entry);
 
-            Thread.sleep(2000);
+            // then
+            String output = outputCapture.toString();
+            assertThat(output).isNotEmpty();
+
+            // 원본 민감정보가 출력에 포함되지 않아야 함
+            assertThat(output).doesNotContain("123456-1234567");
+            assertThat(output).doesNotContain("secretPassword123");
+            assertThat(output).doesNotContain("1234-5678-9012-3456");
+        }
+
+        @Test
+        @DisplayName("무결성 필드가 추가되어야 한다")
+        void shouldAddIntegrityField() throws Exception {
+            // given
+            LogEntry entry = LogEntry.builder()
+                    .timestamp(System.currentTimeMillis())
+                    .level("INFO")
+                    .message("Integrity test")
+                    .build();
+
+            // when
+            processor.process(entry);
 
             // then
-            try (KafkaConsumer<String, byte[]> consumer = createConsumer()) {
-                consumer.subscribe(Collections.singletonList(testTopic));
-                ConsumerRecords<String, byte[]> records = consumer.poll(Duration.ofSeconds(10));
+            String output = outputCapture.toString();
+            JsonNode json = objectMapper.readTree(output.trim());
+            assertThat(json.has("integrity")).isTrue();
+            assertThat(json.get("integrity").asText()).startsWith("sha256:");
+        }
 
-                assertThat(records.count()).isGreaterThan(0);
-            }
+        @Test
+        @DisplayName("암호화 필드가 추가되어야 한다")
+        void shouldAddEncryptionFields() throws Exception {
+            // given
+            LogEntry entry = LogEntry.builder()
+                    .timestamp(System.currentTimeMillis())
+                    .level("INFO")
+                    .message("Encryption test")
+                    .payload(Map.of("secret", "data"))
+                    .build();
+
+            // when
+            processor.process(entry);
+
+            // then
+            String output = outputCapture.toString();
+            JsonNode json = objectMapper.readTree(output.trim());
+            assertThat(json.has("encryptedDek")).isTrue();
         }
     }
 
@@ -172,7 +197,7 @@ class EndToEndTest {
         @DisplayName("다수의 로그를 처리할 수 있어야 한다")
         void shouldHandleMultipleLogs() throws Exception {
             // given
-            int logCount = 10;
+            int logCount = 100;
 
             // when
             for (int i = 0; i < logCount; i++) {
@@ -184,23 +209,10 @@ class EndToEndTest {
                 processor.process(entry);
             }
 
-            Thread.sleep(5000);
-
             // then
-            try (KafkaConsumer<String, byte[]> consumer = createConsumer()) {
-                consumer.subscribe(Collections.singletonList(testTopic));
-
-                int received = 0;
-                long deadline = System.currentTimeMillis() + 20000;
-
-                while (received == 0 && System.currentTimeMillis() < deadline) {
-                    ConsumerRecords<String, byte[]> records = consumer.poll(Duration.ofSeconds(2));
-                    received += records.count();
-                }
-
-                assertThat(received).as("Should receive at least one log through the async pipeline")
-                        .isGreaterThanOrEqualTo(1);
-            }
+            String output = outputCapture.toString();
+            String[] lines = output.trim().split("\n");
+            assertThat(lines.length).isEqualTo(logCount);
         }
     }
 
@@ -226,32 +238,61 @@ class EndToEndTest {
             // when
             processor.process(entry);
 
-            Thread.sleep(2000);
-
             // then
-            try (KafkaConsumer<String, byte[]> consumer = createConsumer()) {
-                consumer.subscribe(Collections.singletonList(testTopic));
-                ConsumerRecords<String, byte[]> records = consumer.poll(Duration.ofSeconds(10));
+            String output = outputCapture.toString();
+            JsonNode json = objectMapper.readTree(output.trim());
 
-                assertThat(records.count()).isGreaterThan(0);
-
-                byte[] data = records.iterator().next().value();
-                LogEntry deserialized = serializer.deserialize(data);
-
-                assertThat(deserialized.getTraceId()).isEqualTo(traceId);
-                assertThat(deserialized.getSpanId()).isEqualTo(spanId);
-            }
+            assertThat(json.get("traceId").asText()).isEqualTo(traceId);
+            assertThat(json.get("spanId").asText()).isEqualTo(spanId);
         }
     }
 
-    private KafkaConsumer<String, byte[]> createConsumer() {
-        Properties props = new Properties();
-        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, kafka.getBootstrapServers());
-        props.put(ConsumerConfig.GROUP_ID_CONFIG, "e2e-test-group-" + System.currentTimeMillis());
-        props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
-        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
-        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+    @Nested
+    @DisplayName("JSON 구조")
+    class JsonStructureTests {
 
-        return new KafkaConsumer<>(props);
+        @Test
+        @DisplayName("출력이 유효한 JSON이어야 한다")
+        void shouldOutputValidJson() throws Exception {
+            // given
+            LogEntry entry = LogEntry.builder()
+                    .timestamp(System.currentTimeMillis())
+                    .level("WARN")
+                    .message("JSON validation test")
+                    .context(Map.of("key1", "value1", "key2", "value2"))
+                    .build();
+
+            // when
+            processor.process(entry);
+
+            // then
+            String output = outputCapture.toString().trim();
+            JsonNode json = objectMapper.readTree(output);  // 파싱 가능해야 함
+            assertThat(json.isObject()).isTrue();
+        }
+
+        @Test
+        @DisplayName("각 줄이 독립적인 JSON 객체여야 한다 (NDJSON)")
+        void shouldOutputNdjsonFormat() throws Exception {
+            // given & when
+            for (int i = 0; i < 3; i++) {
+                LogEntry entry = LogEntry.builder()
+                        .timestamp(System.currentTimeMillis() + i)
+                        .level("INFO")
+                        .message("NDJSON test " + i)
+                        .build();
+                processor.process(entry);
+            }
+
+            // then
+            String output = outputCapture.toString();
+            String[] lines = output.trim().split("\n");
+            assertThat(lines.length).isEqualTo(3);
+
+            for (String line : lines) {
+                JsonNode json = objectMapper.readTree(line);
+                assertThat(json.isObject()).isTrue();
+            }
+        }
     }
 }
