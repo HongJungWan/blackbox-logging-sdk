@@ -128,16 +128,15 @@ KBS SDK를 사용하면 시스템 부하가 높아져도 로그는 메인 로직
 
 ## 🤿 이런 차이점이 있어요
 
-| 기능 | ⭐️ KBS SDK ⭐ | Logback+SLF4J | Sentry | Datadog |
-  | :--- |:------------:| :---: | :---: | :---: |
-| **PII 자동 마스킹** |   ✅ **내장**   | ❌ | ❌ | 추가 설정 |
-| **@Mask 어노테이션** |      ✅       | ❌ | ❌ | ❌ |
-| **비상용 복호화 (Break-glass)** |      ✅       | ❌ | ❌ | ❌ |
-| **감사 문맥 (@AuditContext)** |      ✅       | ❌ | ❌ | ❌ |
-| **위변조 방지 (Hash Chain)** |      ✅       | ❌ | ❌ | ❌ |
-| **암호화 (AES-256-GCM)** |      ✅       | ❌ | ❌ | ❌ |
-| **Crypto-Shredding (GDPR)** |      ✅       | ❌ | ❌ | ❌ |
-| **데이터 위치** |    자체 인프라    | 자체 | Sentry 서버 | Datadog 서버 |
+| 기능 | ⭐️ KBS SDK ⭐ | Logback+SLF4J |
+  | :--- |:------------:| :---: | 
+| **PII 자동 마스킹** |   ✅ **내장**   | ❌ | 
+| **@Mask 어노테이션** |      ✅       | ❌ | 
+| **비상용 복호화 (Break-glass)** |      ✅       | ❌ |
+| **감사 문맥 (@AuditContext)** |      ✅       | ❌ | 
+| **위변조 방지 (Hash Chain)** |      ✅       | ❌ | 
+| **암호화 (AES-256-GCM)** |      ✅       | ❌ | 
+| **Crypto-Shredding (GDPR)** |      ✅       | ❌ |
 
 <br><br>
 
@@ -175,4 +174,121 @@ KBS SDK를 사용하면 시스템 부하가 높아져도 로그는 메인 로직
 
 ## 🏛️ 서비스 아키텍처
 
-<img src="https://github.com/user-attachments/assets/82893c14-ba04-4abf-b75d-bb698faa3354" width="500">
+<img src="https://github.com/user-attachments/assets/9a3a4a1c-d2e8-4075-a044-b8b99a850d36" width="500">
+
+<br><br>
+
+## 🛠️ KBS SDK 사용 가이드
+
+### 1. 라이브러리 추가
+
+> `build.gradle` 파일에 의존성을 추가합니다.
+
+```groovy
+dependencies {
+    implementation 'io.github.hongjungwan:blackbox-logging-sdk:3.0.0-RELEASE'
+}
+```
+
+<br>
+
+### 2. 설정하기
+
+> application.yml에서 로깅 정책을 설정합니다. 비동기 처리(ASYNC)를 통해 애플리케이션 성능 영향을 최소화하며, 보안 옵션을 손쉽게 활성화할 수 있습니다.
+
+```yaml
+secure-hr:
+  logging:
+    enabled: true
+    mode: ASYNC          # 로깅 성능 최적화 (ASYNC / SYNC)
+    pii-masking:
+      enabled: true
+      patterns: [rrn, credit_card, password, ssn] # 자동 마스킹할 필드명 패턴
+    security:
+      encryption-enabled: true # 로그 데이터 암호화 활성화
+      integrity-enabled: true  # 로그 위변조 방지를 위한 무결성 검증 활성화
+    fallback-directory: "logs/fallback" # 로깅 실패 시 저장할 로컬 경로
+```
+
+<br>
+
+### 3. 사용법
+
+#### 3.1. SecureLogger
+일반 Logger와 동일하게 사용하되, 설정된 민감 정보 패턴(예: rrn)이 감지되면 자동으로 마스킹 처리됩니다.
+
+```java
+@Service
+public class EmployeeService {
+
+    private final SecureLogger secureLogger;
+
+    public void process(String employeeId) {
+        // 민감 정보(rrn)는 자동으로 마스킹되어 기록됩니다.
+        secureLogger.info("급여 조회", Map.of(
+            "employeeId", employeeId,
+            "rrn", "901234-1234567"    // Log Output: 901234-*******
+        ));
+    }
+}
+```
+
+<br>
+
+#### 3.2. @Mask Annotation
+DTO 필드에 @Mask 어노테이션을 적용하여 명시적으로 마스킹 정책을 적용할 수 있습니다.
+
+```java
+public class EmployeeDto {
+    @Mask(MaskType.RRN)        // 주민등록번호 마스킹
+    private String residentNumber;
+
+    @Mask(MaskType.PHONE)      // 전화번호 마스킹
+    private String phoneNumber;
+}
+```
+
+<br>
+
+#### 3.3. @AuditContext Annotation (Audit Logging)
+누가(Who), 왜(Why), 어떤 행위(Action)를 했는지 명확한 감사 로그를 남깁니다. Controller 메서드에 적용 시 반복적인 감사 로깅 코드를 줄일 수 있습니다.
+
+```java
+@AuditContext(
+    why = "급여 정보 조회",       // 조회 목적
+    whomParam = "employeeId",   // 조회 대상 (파라미터명 매핑)
+    action = AuditAction.READ   // 수행 행위
+)
+@GetMapping("/{employeeId}/salary")
+public SalaryDto getSalary(@PathVariable String employeeId) {
+    // 비즈니스 로직 실행 시, Audit Context 정보가 자동으로 로깅됩니다.
+    return service.getSalary(employeeId);
+}
+```
+
+<br>
+
+### 4. 로그 출력 예시
+
+> 읽기 쉬운 JSON 포맷으로 출력되며, 보안 메타데이터가 포함됩니다.
+
+```json
+{
+  "timestamp": 1734448200000,
+  "level": "INFO",
+  "traceId": "abc123",
+  "message": "급여 조회",
+  "payload": {
+    "employeeId": "EMP001",
+    "rrn": "901234-*******"
+  },
+  "integrity": "sha256:a1b2c3d4...", 
+  "encryptedDek": "eyJhbGciOi..."
+}
+```
+
+* **payload**: 마스킹 처리된 안전한 데이터
+* **integrity**: 로그 위변조 검증을 위한 해시 값
+* **encryptedDek**: 데이터 복호화를 위한 암호화된 키
+
+<br>

@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**KBS (blacK-Box logging SDK) v8.0.0-RELEASE** - HR 도메인용 보안 로깅 SDK. PII 자동 마스킹, AES-256-GCM 암호화, Hash Chain 무결성 검증 지원.
+**KBS (blacK-Box logging SDK) v3.0.0-RELEASE** - HR 도메인용 보안 로깅 SDK. PII 자동 마스킹, AES-256-GCM 암호화, Hash Chain 무결성 검증 지원.
 
-- **Artifact ID**: `secure-hr-logging-starter`
+- **Group:Artifact**: `io.github.hongjungwan:blackbox-logging-sdk`
 - **Requirements**: Java 21+, Spring Boot 3.5.8+
-- **Architecture**: Multi-module Gradle project (40 source files, 35 test files)
+- **Architecture**: Multi-module Gradle project
 - **Output Mode**: Console (System.out) - NDJSON 형식
 
 ## Common Commands
