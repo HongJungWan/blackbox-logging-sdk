@@ -76,7 +76,8 @@ Dependencies defined in `secure-log-core/build.gradle`:
 - Zstd (`zstd-jni` 1.5.6-3) - Compression
 - BouncyCastle (`bcprov-jdk18on` 1.79) - Cryptography
 - Kafka (`kafka-clients` 3.7.0) - Log transport
-- AWS SDK (`kms`, `sts` - 2.25.0) - KMS integration
+- Logback (`logback-classic` 1.5.15) - Logging framework
+- SLF4J (`slf4j-api` 2.0.16) - Logging API
 
 ## Core Architecture
 
@@ -285,7 +286,6 @@ secure-hr:
     security:
       encryption-enabled: true
       integrity-enabled: true
-      kms-key-id: "arn:aws:kms:..."
       emergency-public-key: "Base64-encoded-RSA-public-key"  # For emergency mode
     audit:
       enabled: true  # Enable @AuditContext AOP
