@@ -107,20 +107,19 @@ When buffer is full, `VirtualAsyncAppender.handleBackpressure()` saves events to
 
 ### Key Subsystems
 
-**Context Propagation** (FEAT-09) - `context/` package
-- `LoggingContext` - Immutable, ThreadLocal-scoped trace context
-- `ContextPropagator` - W3C Trace Context/Baggage header support
+**Context Propagation** - `api/context/` package
+- `LoggingContext` - Immutable, ThreadLocal-scoped trace context with W3C Trace Context/Baggage header support
 - Auto-propagation across threads via `LoggingContext.wrap(Runnable)`
 
-**Interceptor Chain** (FEAT-10) - `interceptor/` package
+**Interceptor Chain** - `api/interceptor/` + `core/internal/`
 - `LogInterceptor` - Hook interface for pipeline stages
 - `BuiltInInterceptors` - Sampling, level filter, field redaction
 
-**Resilience** (FEAT-11) - `resilience/` package
+**Resilience** - `core/resilience/` package
 - `CircuitBreaker` - Simple consecutive failure-based breaker (CLOSED/OPEN), N failures triggers fast-fail
 - `RetryPolicy` - Fixed interval retry (simplified, no exponential backoff)
 
-**Metrics** (FEAT-12) - `metrics/` package
+**Metrics** - `core/internal/` package
 - `SdkMetrics` - Throughput, latency histograms, error rates
 - `MetricsExporter` - Prometheus/JSON format export
 
@@ -372,17 +371,23 @@ Measured metrics:
 
 ```
 io.github.hongjungwan.blackbox
-├── api/                    # Public API (SecureLogger, LogEntry, LoggingContext)
+├── api/                    # Public API (SecureLogger, SecureLoggerFactory)
 │   ├── annotation/         # @Mask, MaskType, @AuditContext, AuditAction
-│   ├── config/             # Configuration classes
-│   ├── context/            # Context propagation
-│   ├── domain/             # Domain models (LogEntry, AuditInfo)
-│   └── interceptor/        # Interceptor interfaces
+│   ├── config/             # SecureLogConfig
+│   ├── context/            # LoggingContext (ThreadLocal trace context)
+│   ├── domain/             # LogEntry, AuditInfo
+│   └── interceptor/        # LogInterceptor interface
 ├── core/
-│   ├── internal/           # Core implementations (LogProcessor, VirtualAsyncAppender, etc.)
+│   ├── internal/           # Core implementations:
+│   │   ├── LogProcessor, VirtualAsyncAppender, DefaultSecureLogger
+│   │   ├── KafkaProducer, ResilientLogTransport, LogTransport
+│   │   ├── MerkleChain, LogSerializer, SdkMetrics, MetricsExporter
+│   │   ├── InterceptorChainImpl, BuiltInInterceptors, SecureLogDoctor
 │   ├── resilience/         # CircuitBreaker, RetryPolicy
-│   └── security/           # EnvelopeEncryption, LocalKeyManager, PiiMasker, EmergencyEncryptor
+│   └── security/           # EnvelopeEncryption, LocalKeyManager, PiiMasker
+│                           # AnnotationMaskingProcessor, EmergencyEncryptor
 ├── spi/                    # Extension points (EncryptionProvider, MaskingStrategy, TransportProvider)
 └── starter/                # Spring Boot Starter (secure-log-starter module)
-    └── aop/                # AuditContextAspect, AuditUserExtractor
+    ├── SecureLogAutoConfiguration, SecureLogProperties
+    └── aop/                # AuditContextAspect, AuditUserExtractor, SecurityContextUserExtractor
 ```
