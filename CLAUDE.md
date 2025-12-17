@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **KBS (blacK-Box logging SDK) v8.0.0-RELEASE** - HR 도메인용 보안 로깅 SDK. PII 자동 마스킹, AES-256-GCM 암호화, Hash Chain 무결성 검증 지원.
 
 - **Artifact ID**: `secure-hr-logging-starter`
-- **Requirements**: Java 21+ (Virtual Threads), Spring Boot 3.5.8+
+- **Requirements**: Java 21+, Spring Boot 3.5.8+
 - **Architecture**: Multi-module Gradle project (40 source files, 35 test files)
 - **Output Mode**: Console (System.out) - NDJSON 형식
 
@@ -52,12 +52,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Processing Pipeline
 ```
-LogEvent → VirtualAsyncAppender → LogProcessor:
+SecureLogger.info() → SLF4J/Logback → VirtualAsyncAppender → LogProcessor:
   1. PII Masking (PiiMasker)
   2. Integrity Chain (MerkleChain) - SHA-256 Hash Chain
   3. Encryption (EnvelopeEncryption) - AES-256-GCM, 1시간 DEK 로테이션
   4. Console Output (ConsoleLogTransport) - NDJSON to System.out
 ```
+
+**Note**: VirtualAsyncAppender는 Logback Appender로, 사용자 애플리케이션의 `logback-spring.xml`에 등록 필요.
 
 ### Output Format
 ```json
@@ -68,7 +70,7 @@ LogEvent → VirtualAsyncAppender → LogProcessor:
 
 | 컴포넌트 | 위치 | 역할 |
 |---------|------|------|
-| `VirtualAsyncAppender` | core/internal | Virtual Thread 기반 비동기 처리 |
+| `VirtualAsyncAppender` | core/internal | Fixed Thread Pool 기반 비동기 처리 (Logback Appender) |
 | `LogProcessor` | core/internal | 파이프라인 오케스트레이션 |
 | `ConsoleLogTransport` | core/internal | Thread-safe JSON stdout 출력 |
 | `PiiMasker` | core/security | 필드명 기반 + 어노테이션 마스킹 |
@@ -155,10 +157,15 @@ secure-hr:
 ### Graceful Shutdown
 ```
 SecureLogLifecycle.stop():
-  1. VirtualAsyncAppender.stop() - 10초 버퍼 드레인
+  1. VirtualAsyncAppender.stop() - 10초 버퍼 드레인 (consumerBatchLatch.await)
   2. Timeout → processFallback()으로 잔여 이벤트 저장
   3. MerkleChain.saveState() - 체인 상태 영속화
 ```
+
+### Thread Model
+- `VirtualAsyncAppender`: `Executors.newFixedThreadPool(consumerThreads)` - 설정 가능한 Consumer 스레드
+- `ConsoleLogTransport`: `ReentrantLock` - JSON 출력 동기화
+- `ArrayBlockingQueue`: Non-blocking offer, 100ms poll timeout
 
 ## Performance Targets
 
