@@ -62,8 +62,13 @@ public class MerkleChain {
         }
 
         digest.update(String.valueOf(entry.getTimestamp()).getBytes(StandardCharsets.UTF_8));
-        digest.update(entry.getLevel().getBytes(StandardCharsets.UTF_8));
-        digest.update(entry.getMessage().getBytes(StandardCharsets.UTF_8));
+
+        String level = entry.getLevel();
+        digest.update((level != null ? level : "UNKNOWN").getBytes(StandardCharsets.UTF_8));
+
+        String message = entry.getMessage();
+        digest.update((message != null ? message : "").getBytes(StandardCharsets.UTF_8));
+
         digest.update(previousHash.getBytes(StandardCharsets.UTF_8));
 
         if (entry.getPayload() != null) {

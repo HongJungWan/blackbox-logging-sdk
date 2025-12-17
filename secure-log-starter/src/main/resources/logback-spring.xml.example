@@ -8,9 +8,6 @@
 <configuration scan="true" scanPeriod="30 seconds">
 
     <!-- Define spring properties for dynamic configuration -->
-    <springProperty scope="context" name="kafkaBootstrap"
-                    source="secure-hr.logging.kafka.bootstrap-servers"
-                    defaultValue="localhost:9092"/>
     <springProperty scope="context" name="appName"
                     source="spring.application.name"
                     defaultValue="secure-hr-app"/>
@@ -46,7 +43,6 @@
     </appender>
 
     <!-- Suppress noisy framework logs -->
-    <logger name="org.apache.kafka" level="WARN"/>
     <logger name="software.amazon.awssdk" level="WARN"/>
     <logger name="org.springframework" level="INFO"/>
 

@@ -165,7 +165,6 @@ KBS SDK를 사용하면 시스템 부하가 높아져도 로그는 메인 로직
                 <p>Infra</p>
             </td>
             <td>
-                <img src="https://img.shields.io/badge/Apache%20Kafka-000000?style=flat&logo=apachekafka&logoColor=white" alt="Kafka"/>
                 <img src="https://img.shields.io/badge/AWS-%23232F3E.svg?style=flat&logo=amazonwebservices&logoColor=white" alt="AWS"/>
             </td>
         </tr>

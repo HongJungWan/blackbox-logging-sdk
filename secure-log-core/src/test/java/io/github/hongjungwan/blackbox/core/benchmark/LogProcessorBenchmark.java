@@ -8,7 +8,7 @@ import io.github.hongjungwan.blackbox.core.internal.LogProcessor;
 import io.github.hongjungwan.blackbox.core.security.EnvelopeEncryption;
 import io.github.hongjungwan.blackbox.core.security.LocalKeyManager;
 import io.github.hongjungwan.blackbox.core.internal.LogSerializer;
-import io.github.hongjungwan.blackbox.core.internal.ResilientLogTransport;
+import io.github.hongjungwan.blackbox.core.internal.ConsoleLogTransport;
 import org.openjdk.jmh.annotations.*;
 import org.openjdk.jmh.infra.Blackhole;
 import org.openjdk.jmh.runner.Runner;
@@ -16,7 +16,9 @@ import org.openjdk.jmh.runner.RunnerException;
 import org.openjdk.jmh.runner.options.Options;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
@@ -56,14 +58,13 @@ public class LogProcessorBenchmark {
                 .fallbackDirectory(tempDir.toString())
                 .build();
 
-        noOpTransport = new NoOpTransport();
+        noOpTransport = new NoOpTransport(fullConfig);
 
         processor = new LogProcessor(
                 fullConfig,
                 new PiiMasker(fullConfig),
                 new EnvelopeEncryption(fullConfig, new LocalKeyManager(fullConfig)),
                 new MerkleChain(),
-                new LogSerializer(),
                 noOpTransport
         );
 
@@ -80,7 +81,6 @@ public class LogProcessorBenchmark {
                 new PiiMasker(minimalConfig),
                 new EnvelopeEncryption(minimalConfig, new LocalKeyManager(minimalConfig)),
                 new MerkleChain(),
-                new LogSerializer(),
                 noOpTransport
         );
 
@@ -156,18 +156,16 @@ public class LogProcessorBenchmark {
     /**
      * No-op transport for benchmarking (avoids I/O overhead)
      */
-    static class NoOpTransport extends ResilientLogTransport {
+    static class NoOpTransport extends ConsoleLogTransport {
         private final AtomicLong sendCount = new AtomicLong(0);
 
-        NoOpTransport() throws IOException {
-            super(SecureLogConfig.builder()
-                            .fallbackDirectory(Files.createTempDirectory("noop").toString())
-                            .build(),
-                    new LogSerializer());
+        NoOpTransport(SecureLogConfig config) throws IOException {
+            super(config, new LogSerializer(),
+                    new PrintStream(new ByteArrayOutputStream()));
         }
 
         @Override
-        public void send(byte[] data) {
+        public void send(LogEntry entry) {
             sendCount.incrementAndGet();
             // No-op - don't actually send
         }

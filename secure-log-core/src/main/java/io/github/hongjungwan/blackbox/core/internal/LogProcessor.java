@@ -7,7 +7,7 @@ import io.github.hongjungwan.blackbox.core.security.EnvelopeEncryption;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * 로그 처리 파이프라인. PII 마스킹 -> 무결성 체인 -> 암호화 -> 직렬화 -> 전송.
+ * 로그 처리 파이프라인. PII 마스킹 -> 무결성 체인 -> 암호화 -> Console 출력.
  */
 @Slf4j
 public class LogProcessor {
@@ -16,22 +16,19 @@ public class LogProcessor {
     private final PiiMasker piiMasker;
     private final EnvelopeEncryption encryption;
     private final MerkleChain merkleChain;
-    private final LogSerializer serializer;
-    private final ResilientLogTransport transport;
+    private final ConsoleLogTransport transport;
 
     public LogProcessor(
             SecureLogConfig config,
             PiiMasker piiMasker,
             EnvelopeEncryption encryption,
             MerkleChain merkleChain,
-            LogSerializer serializer,
-            ResilientLogTransport transport
+            ConsoleLogTransport transport
     ) {
         this.config = config;
         this.piiMasker = piiMasker;
         this.encryption = encryption;
         this.merkleChain = merkleChain;
-        this.serializer = serializer;
         this.transport = transport;
     }
 
@@ -57,11 +54,8 @@ public class LogProcessor {
                 encryptedEntry = encryption.encrypt(chainedEntry);
             }
 
-            // 4단계: 직렬화 (Zstd 압축)
-            byte[] serialized = serializer.serialize(encryptedEntry);
-
-            // 5단계: 전송 (Kafka 또는 Fallback)
-            transport.send(serialized);
+            // 4단계: Console 출력 (JSON)
+            transport.send(encryptedEntry);
 
         } catch (Exception e) {
             log.error("Error processing log entry", e);

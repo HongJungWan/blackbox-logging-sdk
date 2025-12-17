@@ -36,27 +36,6 @@ fi
 echo ""
 echo "Service Status:"
 
-# Check Zookeeper
-echo -n "  Zookeeper: "
-if docker-compose ps zookeeper 2>/dev/null | grep -q "Up"; then
-    echo -e "${GREEN}Running${NC}"
-else
-    echo -e "${YELLOW}Not running${NC}"
-fi
-
-# Check Kafka
-echo -n "  Kafka:     "
-if docker-compose ps kafka 2>/dev/null | grep -q "Up"; then
-    # Also check if Kafka is actually accepting connections
-    if docker-compose exec -T kafka kafka-topics --bootstrap-server localhost:9092 --list > /dev/null 2>&1; then
-        echo -e "${GREEN}Running & Healthy${NC}"
-    else
-        echo -e "${YELLOW}Running (not ready)${NC}"
-    fi
-else
-    echo -e "${YELLOW}Not running${NC}"
-fi
-
 # Check LocalStack
 echo -n "  LocalStack: "
 if docker-compose ps localstack 2>/dev/null | grep -q "Up"; then

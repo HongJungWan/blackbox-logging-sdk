@@ -6,7 +6,8 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * 로그 전송 백엔드 SPI. Kafka, Elasticsearch 등 다양한 목적지 지원 시 구현.
+ * 로그 전송 백엔드 SPI. 기본 구현은 Console 출력(ConsoleLogTransport).
+ * 커스텀 목적지(Elasticsearch, File, HTTP 등)가 필요한 경우 이 인터페이스 구현.
  */
 public interface TransportProvider {
 

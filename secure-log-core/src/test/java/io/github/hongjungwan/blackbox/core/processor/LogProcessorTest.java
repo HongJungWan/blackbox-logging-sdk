@@ -5,7 +5,7 @@ import io.github.hongjungwan.blackbox.api.domain.LogEntry;
 import io.github.hongjungwan.blackbox.core.internal.LogProcessor;
 import io.github.hongjungwan.blackbox.core.internal.MerkleChain;
 import io.github.hongjungwan.blackbox.core.internal.LogSerializer;
-import io.github.hongjungwan.blackbox.core.internal.ResilientLogTransport;
+import io.github.hongjungwan.blackbox.core.internal.ConsoleLogTransport;
 import io.github.hongjungwan.blackbox.core.security.PiiMasker;
 import io.github.hongjungwan.blackbox.core.security.EnvelopeEncryption;
 import io.github.hongjungwan.blackbox.core.security.LocalKeyManager;
@@ -31,7 +31,7 @@ class LogProcessorTest {
     private SecureLogConfig config;
 
     @Mock
-    private ResilientLogTransport mockTransport;
+    private ConsoleLogTransport mockTransport;
 
     @BeforeEach
     void setUp() {
@@ -48,14 +48,12 @@ class LogProcessorTest {
         LocalKeyManager keyManager = new LocalKeyManager(config);
         EnvelopeEncryption encryption = new EnvelopeEncryption(config, keyManager);
         MerkleChain merkleChain = new MerkleChain();
-        LogSerializer serializer = new LogSerializer();
 
         processor = new LogProcessor(
                 config,
                 piiMasker,
                 encryption,
                 merkleChain,
-                serializer,
                 mockTransport
         );
     }
@@ -84,7 +82,7 @@ class LogProcessorTest {
             processor.process(entry);
 
             // then
-            verify(mockTransport, times(1)).send(any(byte[].class));
+            verify(mockTransport, times(1)).send(any(LogEntry.class));
         }
 
         @Test
@@ -102,7 +100,7 @@ class LogProcessorTest {
             processor.process(entry);
 
             // then
-            verify(mockTransport, times(1)).send(any(byte[].class));
+            verify(mockTransport, times(1)).send(any(LogEntry.class));
         }
     }
 
@@ -126,7 +124,6 @@ class LogProcessorTest {
                     new PiiMasker(disabledConfig),
                     new EnvelopeEncryption(disabledConfig, new LocalKeyManager(disabledConfig)),
                     new MerkleChain(),
-                    new LogSerializer(),
                     mockTransport
             );
 
@@ -141,7 +138,7 @@ class LogProcessorTest {
             minimalProcessor.process(entry);
 
             // then
-            verify(mockTransport, times(1)).send(any(byte[].class));
+            verify(mockTransport, times(1)).send(any(LogEntry.class));
         }
 
         @Test
@@ -160,7 +157,6 @@ class LogProcessorTest {
                     new PiiMasker(disabledConfig),
                     new EnvelopeEncryption(disabledConfig, new LocalKeyManager(disabledConfig)),
                     new MerkleChain(),
-                    new LogSerializer(),
                     mockTransport
             );
 
@@ -174,7 +170,7 @@ class LogProcessorTest {
             minimalProcessor.process(entry);
 
             // then
-            verify(mockTransport, times(1)).send(any(byte[].class));
+            verify(mockTransport, times(1)).send(any(LogEntry.class));
         }
     }
 
@@ -186,8 +182,8 @@ class LogProcessorTest {
         @DisplayName("전송 실패 시 폴백으로 저장해야 한다")
         void shouldFallbackOnTransportFailure() {
             // given
-            doThrow(new RuntimeException("Kafka unavailable"))
-                    .when(mockTransport).send(any(byte[].class));
+            doThrow(new RuntimeException("Transport unavailable"))
+                    .when(mockTransport).send(any(LogEntry.class));
 
             LogEntry entry = LogEntry.builder()
                     .timestamp(System.currentTimeMillis())
@@ -224,7 +220,7 @@ class LogProcessorTest {
             processor.process(entry);
 
             // then
-            verify(mockTransport, times(1)).send(any(byte[].class));
+            verify(mockTransport, times(1)).send(any(LogEntry.class));
         }
     }
 }
