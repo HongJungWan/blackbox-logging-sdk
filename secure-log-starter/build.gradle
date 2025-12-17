@@ -6,6 +6,8 @@ plugins {
 
 description = 'SecureHR Logging SDK - Spring Boot Starter'
 
+archivesBaseName = 'blackbox-logging-sdk'
+
 dependencyManagement {
 	imports {
 		mavenBom org.springframework.boot.gradle.plugin.SpringBootPlugin.BOM_COORDINATES
