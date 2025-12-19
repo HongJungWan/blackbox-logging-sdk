@@ -27,8 +27,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Module-specific
 ./gradlew :secure-log-core:build
 ./gradlew :secure-log-core:test
-./gradlew :secure-log-core:integrationTest   # 통합 테스트
-./gradlew :secure-log-core:allTests          # 전체 테스트
+./gradlew :secure-log-core:integrationTest   # 통합 테스트 (Docker 필요)
+./gradlew :secure-log-core:allTests          # 단위 + 통합 테스트
 
 # Infrastructure (Docker required)
 ./scripts/start-test-infra.sh --wait         # LocalStack 시작
@@ -40,13 +40,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```
 .
-├── secure-log-core/     # Pure Java 핵심 라이브러리
-├── secure-log-starter/  # Spring Boot AutoConfiguration
-├── secure-log-test/     # TestKit (LogAssert 유틸리티)
+├── secure-log-core/     # Pure Java 핵심 라이브러리 (의존성 없음)
+├── secure-log-starter/  # Spring Boot AutoConfiguration (core 의존)
+├── secure-log-test/     # TestKit - LogAssert 유틸리티 (core 의존)
 └── scripts/             # Docker 인프라 스크립트
 ```
 
+**Module Dependency**: `starter` → `core`, `test` → `core`
+
 **Base Package**: `io.github.hongjungwan.blackbox`
+
+### Package Layout (secure-log-core)
+```
+io.github.hongjungwan.blackbox
+├── api/                 # Public API (SecureLogger, annotations, config, domain)
+│   ├── annotation/      # @Mask, @AuditContext, MaskType, AuditAction
+│   ├── config/          # SecureLogConfig
+│   ├── context/         # LoggingContext (W3C Trace Context)
+│   └── domain/          # LogEntry, AuditInfo
+├── core/
+│   ├── internal/        # Pipeline 구현 (외부 노출 금지)
+│   ├── resilience/      # CircuitBreaker, RetryPolicy
+│   └── security/        # PiiMasker, EnvelopeEncryption, LocalKeyManager
+└── spi/                 # Extension Points (TransportProvider, EncryptionProvider, MaskingStrategy)
+```
 
 ## Core Architecture
 
@@ -59,7 +76,13 @@ SecureLogger.info() → SLF4J/Logback → VirtualAsyncAppender → LogProcessor:
   4. Console Output (ConsoleLogTransport) - NDJSON to System.out
 ```
 
-**Note**: VirtualAsyncAppender는 Logback Appender로, 사용자 애플리케이션의 `logback-spring.xml`에 등록 필요.
+### Logback Integration
+VirtualAsyncAppender는 Logback Appender로, 사용자 애플리케이션의 `logback-spring.xml`에 등록 필요:
+```xml
+<appender name="SECURE" class="io.github.hongjungwan.blackbox.core.internal.VirtualAsyncAppender">
+    <!-- LogProcessor를 통해 자동 설정 -->
+</appender>
+```
 
 ### Output Format
 ```json
@@ -77,6 +100,7 @@ SecureLogger.info() → SLF4J/Logback → VirtualAsyncAppender → LogProcessor:
 | `EnvelopeEncryption` | core/security | DEK/KEK 봉투 암호화 |
 | `MerkleChain` | core/internal | 로그 무결성 체인 |
 | `LoggingContext` | api/context | W3C Trace Context 전파 |
+| `LocalKeyManager` | core/security | KEK 관리 (로컬 모드) |
 
 ### SPI Extension Points (`spi/` package)
 - `TransportProvider` - 커스텀 로그 전송 목적지
@@ -177,18 +201,28 @@ SecureLogLifecycle.stop():
 
 180+ 테스트 케이스 포함:
 - Unit tests: `secure-log-core/src/test/java/`
-- Integration tests: `secure-log-core/src/integrationTest/java/`
-- JMH Benchmarks: `LogProcessorBenchmark`, `PiiMaskerBenchmark`
+- Integration tests: `secure-log-core/src/integrationTest/java/` (Docker 필요)
+- JMH Benchmarks: `LogProcessorBenchmark`, `PiiMaskerBenchmark`, `SerializationBenchmark`
 - Performance tests: `EncryptionPerformanceTest`
 
 ```bash
+# 단위 테스트
+./gradlew :secure-log-core:test
+
+# 통합 테스트 (Docker 필요, Testcontainers 사용)
+./gradlew :secure-log-core:integrationTest
+
+# 특정 테스트
 ./gradlew :secure-log-core:test --tests "EncryptionPerformanceTest"
 ./gradlew :secure-log-core:test --tests "*Benchmark*"
 ```
 
-## Dependencies (secure-log-core/build.gradle)
+**Note**: 통합 테스트는 `-XX:+EnableDynamicAgentLoading` JVM 옵션이 자동 적용됨
 
-- Jackson (`jackson-databind` 2.18.2) - JSON
+## Dependencies (secure-log-core)
+
+- Jackson (`jackson-databind` 2.18.2) - JSON 직렬화
 - Zstd (`zstd-jni` 1.5.6-3) - Fallback 압축
 - BouncyCastle (`bcprov-jdk18on` 1.79) - 암호화
 - Logback (`logback-classic` 1.5.15) + SLF4J (`slf4j-api` 2.0.16)
+- Lombok (`1.18.36`) - compileOnly
