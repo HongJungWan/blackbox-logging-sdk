@@ -1,35 +1,33 @@
 <div align="center">
   <h1>🚛 KBS (blacK-Box logging SDK)</h1>
 
-  <img src="https://github.com/user-attachments/assets/4af1bc28-4377-466a-94a0-1c51ffcf5676" width="600">
+  <img src="https://github.com/user-attachments/assets/4af1bc28-4377-466a-94a0-1c51ffcf5676" width="350">
 
 </div>
 
-<p align=center>
-  <a href="https://github.com/HongJungWan/blackbox-logging-sdk/wiki">📕 위키</a>
-</p>
-
 ## ✍🏻 프로젝트 개요
 
-> "바퀴를 다시 발명하지 말라구요? 하지만 맞는 바퀴가 없다면 만들어야죠."
+> "로그, 남기는 건 필수지만 반복하는 건 싫으니까요."
 
-로그, 그냥 남기면 되는 줄 알았습니다. 하지만 '보안'이 붙는 순간 이야기가 달라지더군요. 
+PII 마스킹, 암호화, 감사 로깅, 위변조 방지 등 보안 로깅에 필요한 기능들을 직접 구현하다 보면 로깅 코드가 비즈니스 코드보다 복잡해집니다.
 
-주민번호 마스킹, DB 암호화, 감사(Audit) 기록, 위변조 방지... 이 모든 걸 갖춘 오픈소스, 찾아보셨나요?
-
-놀랍게도 세상에 없었습니다.
-
-물론 Logback이나 SLF4J를 커스텀해서 구현할 수도 있습니다. 하지만 7가지나 되는 보안 요구사항을 기존 라이브러리에 억지로 끼워 맞추다 보면 로깅 코드를 짜는 데 생각보다 많은 시간을 쏟게 됩니다.
-
-이 프로젝트의 목적은 단순합니다. "보안 로그 때문에 야근하지 말자"는 것입니다. 
-
-복잡한 보안 로깅 기능을 AOP와 어노테이션으로 우아하게 말아 넣었습니다.
-
-까다로운 보안 요구사항은 KBS가 알아서 처리해서 안전하게 블랙박스에 담아두겠습니다.
+**🚛 KBS (blacK-Box logging SDK)는 이 모든 걸 어노테이션과 설정으로 해결합니다.**
 
 <br><br>
 
 ## ⚙️ 핵심 기능
+
+| 기능                  | 설명 |
+|---------------------|-----|
+| **PII 자동 마스킹**      | 주민번호, 카드번호 등 민감정보 자동 탐지 및 마스킹 |
+| **@Mask 어노테이션 마스킹** | DTO 필드에 선언적 마스킹 (9가지 타입 지원) |
+| **비상용 복호화 로깅**     | 비상시 복호화 가능한 암호화 저장 (`emergency = true`) |
+| **AOP 기반 감사 문맥**    | 누가/누구를/왜 조회했는지 AOP로 자동 기록 |
+| **위변조 방지**      | 블록체인 방식 위변조 탐지 |
+| **암호화**     | 로그 전체 암호화 |
+| **Crypto-Shredding** | 암호화 키 파기로 데이터 영구 삭제 |
+
+<br>
 
 ### 1. PII 자동 마스킹
 
@@ -38,7 +36,7 @@
 
 <img src="https://github.com/user-attachments/assets/a4116d53-4855-458b-bccc-1d448b74d682" width="450">
 
-<br>
+<br><br>
 
 ### 2. @Mask 어노테이션 마스킹
 
@@ -58,9 +56,9 @@
   }
 ```
 
-<br>
+<br><br>
 
-### 3. 비상용 복호화 로깅 (Break-glass)
+### 3. 비상용 복호화 로깅
 
 > "마스킹된 데이터, 사고 분석 시 원본이 필요하면?" 이런 고민을 해결합니다. 
 > `@Mask(emergency = true)` 설정 시 마스킹 대신 RSA-OAEP로 암호화된 원본을 저장합니다. 
@@ -71,7 +69,7 @@
   private String residentNumber;        // 결과: {"display":"123456-*******", "encrypted":"Base64..."}
 ```
 
-<br>
+<br><br>
 
 ### 4. AOP 기반 감사 문맥
 
@@ -92,7 +90,7 @@
   }
 ```
 
-<br>
+<br><br>
 
 ### 5. 위변조 방지
 
@@ -101,7 +99,7 @@
 
 <img src="https://github.com/user-attachments/assets/a8baa6f2-661b-4a94-b893-b899ca7ab6c0" width="450">
 
-<br>
+<br><br>
 
 ### 6. 암호화
 
@@ -110,7 +108,7 @@
 
 <img src="https://github.com/user-attachments/assets/f9a33ea7-59ab-4146-8c26-8202039fc7da" width="450">
 
-<br>
+<br><br>
 
 ### 7. Crypto-Shredding
 
