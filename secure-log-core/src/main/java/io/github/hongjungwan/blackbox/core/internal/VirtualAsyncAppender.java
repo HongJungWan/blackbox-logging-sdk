@@ -30,8 +30,6 @@ public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEve
     private final SecureLogConfig config;
     private final LogProcessor processor;
 
-    private Thread consumerThread;
-
     private final AtomicBoolean consumerFinished = new AtomicBoolean(false);
     private final CountDownLatch consumerBatchLatch;
     private final String consumerId = "secure-log-consumer-" + System.nanoTime();
@@ -132,9 +130,6 @@ public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEve
     private void startConsumerLoop(int threadIndex) {
         String threadName = consumerId + "-" + threadIndex;
         executor.submit(() -> {
-            if (threadIndex == 0) {
-                consumerThread = Thread.currentThread();
-            }
             Thread.currentThread().setName(threadName);
 
             try {

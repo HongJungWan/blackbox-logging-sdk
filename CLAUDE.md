@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **Group:Artifact**: `io.github.hongjungwan:blackbox-logging-sdk`
 - **Requirements**: Java 21+, Spring Boot 3.5.8+
-- **Architecture**: Multi-module Gradle project
+- **Architecture**: Multi-module Gradle project (Gradle wrapper included)
 - **Output Mode**: Console (System.out) - NDJSON 형식
 
 ## Common Commands
@@ -30,40 +30,32 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ./gradlew :secure-log-core:integrationTest   # 통합 테스트 (Docker 필요)
 ./gradlew :secure-log-core:allTests          # 단위 + 통합 테스트
 
-# Infrastructure (Docker required)
-./scripts/start-test-infra.sh --wait         # LocalStack 시작
+# Infrastructure (Docker required for integration tests)
+./scripts/start-test-infra.sh --wait         # 테스트 인프라 시작
 ./scripts/stop-test-infra.sh                 # 인프라 중지
-./scripts/check-docker.sh                    # 상태 확인
+./scripts/check-docker.sh                    # Docker 상태 확인
 ```
 
 ## Project Structure
 
 ```
 .
-├── secure-log-core/     # Pure Java 핵심 라이브러리 (의존성 없음)
-├── secure-log-starter/  # Spring Boot AutoConfiguration (core 의존)
-├── secure-log-test/     # TestKit - LogAssert 유틸리티 (core 의존)
-└── scripts/             # Docker 인프라 스크립트
+├── secure-log-core/     # 핵심 라이브러리 (Jackson, Logback, BouncyCastle 의존)
+├── secure-log-starter/  # Spring Boot AutoConfiguration + AOP (core 의존)
+├── secure-log-test/     # TestKit - LogAssert, TestLogCapture 유틸리티 (core 의존)
+└── scripts/             # Docker 테스트 인프라 스크립트
 ```
 
 **Module Dependency**: `starter` → `core`, `test` → `core`
 
 **Base Package**: `io.github.hongjungwan.blackbox`
 
-### Package Layout (secure-log-core)
-```
-io.github.hongjungwan.blackbox
-├── api/                 # Public API (SecureLogger, annotations, config, domain)
-│   ├── annotation/      # @Mask, @AuditContext, MaskType, AuditAction
-│   ├── config/          # SecureLogConfig
-│   ├── context/         # LoggingContext (W3C Trace Context)
-│   └── domain/          # LogEntry, AuditInfo
-├── core/
-│   ├── internal/        # Pipeline 구현 (외부 노출 금지)
-│   ├── resilience/      # CircuitBreaker, RetryPolicy
-│   └── security/        # PiiMasker, EnvelopeEncryption, LocalKeyManager
-└── spi/                 # Extension Points (TransportProvider, EncryptionProvider, MaskingStrategy)
-```
+### Key Package Structure
+- `api/` - Public API: SecureLogger, @Mask, @AuditContext, LogEntry, LoggingContext
+- `core/internal/` - Pipeline 구현 (외부 노출 금지): LogProcessor, VirtualAsyncAppender, ConsoleLogTransport, MerkleChain
+- `core/security/` - 보안 구현: PiiMasker, EnvelopeEncryption, LocalKeyManager
+- `core/resilience/` - CircuitBreaker, RetryPolicy
+- `spi/` - Extension Points: TransportProvider, EncryptionProvider, MaskingStrategy
 
 ## Core Architecture
 
@@ -219,10 +211,18 @@ SecureLogLifecycle.stop():
 
 **Note**: 통합 테스트는 `-XX:+EnableDynamicAgentLoading` JVM 옵션이 자동 적용됨
 
-## Dependencies (secure-log-core)
+## Dependencies
 
+### secure-log-core
 - Jackson (`jackson-databind` 2.18.2) - JSON 직렬화
 - Zstd (`zstd-jni` 1.5.6-3) - Fallback 압축
 - BouncyCastle (`bcprov-jdk18on` 1.79) - 암호화
 - Logback (`logback-classic` 1.5.15) + SLF4J (`slf4j-api` 2.0.16)
 - Lombok (`1.18.36`) - compileOnly
+- JMH (`1.37`) - testImplementation (벤치마크용)
+- Testcontainers (`1.19.7`) - integrationTest용
+
+### secure-log-starter
+- Spring Boot Starter (`3.5.8`) - AutoConfiguration
+- Spring Boot AOP - @AuditContext 지원
+- Spring Security - compileOnly (사용자 추출용, 선택적)

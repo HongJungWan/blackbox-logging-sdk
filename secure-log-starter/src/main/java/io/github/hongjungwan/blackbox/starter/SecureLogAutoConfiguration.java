@@ -176,7 +176,7 @@ public class SecureLogAutoConfiguration {
 
         @Override
         public void start() {
-            log.info("Starting SecureHR Logging SDK v8.0.0 (Console Output Mode)...");
+            log.info("Starting SecureHR Logging SDK v3.0.0 (Console Output Mode)...");
 
             SecureLogDoctor.DiagnosticReport report = doctor.diagnose();
 
