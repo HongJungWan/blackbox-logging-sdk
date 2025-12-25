@@ -52,7 +52,12 @@
       "SlashCommand(/ultra-think 지금까지의 수정사항들을 하나씩 검토하면서 최종적으로 Deep Dive 하게 분석해서 문제가 발생한 부분을 수정해줘.\n\n분석 대상:\n1. Kafka → Console 마이그레이션 완전성 최종 검증\n2. ConsoleLogTransport 구현 - 스레드 안전성, 메모리 누수 가능성\n3. LogProcessor 파이프라인 - 예외 처리 흐름, 데이터 무결성\n4. VirtualAsyncAppender - 종료 시 데이터 손실 가능성\n5. SecureLogAutoConfiguration - Bean 순환 참조, 조건부 로딩\n6. Fallback 메커니즘 - 파일 시스템 권한, 동시 쓰기 문제\n7. MerkleChain 상태 영속화 - 복구 실패 시나리오\n8. 테스트 코드 - 경계 조건, 동시성 테스트 누락\n9. CLAUDE.md 문서 - 실제 코드와 불일치\n10. build.gradle 의존성 - 버전 충돌 가능성\n\n각 항목을 철저히 검토하고, 문제가 있으면 즉시 수정해줘.)",
       "SlashCommand(/ultra-think 본 프로젝트를 전수 검토하면서 Deep Dive 하게 분석해서 문제가 발생한 부분을 수정해줘.\n\n전수 검토 대상:\n1. 모든 Java 소스 파일의 컴파일 오류 및 런타임 오류 가능성\n2. 스레드 안전성 문제 (Race Condition, Deadlock 가능성)\n3. 메모리 누수 가능성 (리소스 미해제, 순환 참조)\n4. 예외 처리 누락 또는 부적절한 예외 처리\n5. Null 안전성 문제 (NPE 가능성)\n6. 보안 취약점 (암호화, 키 관리, PII 노출)\n7. 설정 파일 오류 (application.yml, build.gradle)\n8. 테스트 코드 누락 또는 불완전한 테스트\n9. 문서와 코드 불일치 (CLAUDE.md, README.md)\n10. 의존성 버전 충돌 또는 보안 취약 버전\n11. Spring Boot AutoConfiguration 정합성\n12. SPI 인터페이스와 구현체 정합성\n\n각 항목을 철저히 검토하고, 문제가 있으면 즉시 수정해줘.)",
       "SlashCommand(/ultra-think 본 프로젝트를 전수 검토하면서 서비스 아키텍처를 콘솔로 제시해줘. \"Blackbox Logging SDK - Service Architecture User View\" 구조에서 SDK 동작 범위와 사용자 Application Server(Java & Spring Framework)에서 동작하는지를 알고싶어서. SDK가 어디서 동작하고, 어떤 컴포넌트들이 있으며, 사용자 애플리케이션과 어떻게 통합되는지 명확하게 시각화해줘.)",
-      "SlashCommand(/ultra-think 본 프로젝트를 전수 검토하면서 사용자가 제시한 서비스 아키텍처 다이어그램이 올바른지 검토해줘. SDK 동작 범위, 컴포넌트 관계, 데이터 흐름이 실제 코드와 일치하는지 확인하고, 부정확한 부분이 있다면 수정된 아키텍처를 제시해줘.)"
+      "SlashCommand(/ultra-think 본 프로젝트를 전수 검토하면서 사용자가 제시한 서비스 아키텍처 다이어그램이 올바른지 검토해줘. SDK 동작 범위, 컴포넌트 관계, 데이터 흐름이 실제 코드와 일치하는지 확인하고, 부정확한 부분이 있다면 수정된 아키텍처를 제시해줘.)",
+      "Bash(dir /s /b \"C:\\\\Users\\\\Hong\\\\Desktop\\\\blackbox-logging-sdk\\\\secure-log-starter\\\\src\\\\main\\\\java\\\\io\\\\github\\\\hongjungwan\\\\blackbox\\\\starter\\\\aop\")",
+      "Bash(cmd /c \"gradlew.bat build -x test\")",
+      "Bash(export JAVA_HOME=\"/c/Program Files/Java/jdk-21\")",
+      "Bash(export JAVA_HOME=\"/c/Program Files/Eclipse Adoptium/jdk-21.0.1.12-hotspot\")",
+      "Bash(export JAVA_HOME=\"/c/Users/Hong/.jdks/corretto-21.0.5\")"
     ],
     "deny": [],
     "ask": []

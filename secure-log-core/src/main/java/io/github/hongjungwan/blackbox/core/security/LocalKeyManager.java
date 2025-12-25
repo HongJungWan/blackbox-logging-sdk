@@ -108,8 +108,9 @@ public class LocalKeyManager implements AutoCloseable {
             return null;
         }
 
+        byte[] keyBytes = null;
         try {
-            byte[] keyBytes = Files.readAllBytes(kekPath);
+            keyBytes = Files.readAllBytes(kekPath);
             if (keyBytes.length != 32) {
                 log.warn("Invalid KEK file size (expected 32 bytes), will regenerate");
                 try {
@@ -124,6 +125,11 @@ public class LocalKeyManager implements AutoCloseable {
         } catch (IOException e) {
             log.warn("Failed to load KEK from file: {}", e.getMessage());
             return null;
+        } finally {
+            // 보안: 키 바이트 배열 제로화
+            if (keyBytes != null) {
+                java.util.Arrays.fill(keyBytes, (byte) 0);
+            }
         }
     }
 

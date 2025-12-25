@@ -70,6 +70,10 @@ public class LogSerializer {
 
     /** 역직렬화 (Zstd 압축 해제 + JSON 파싱) */
     public LogEntry deserialize(byte[] data) {
+        if (data == null || data.length == 0) {
+            throw new SerializationException("Cannot deserialize null or empty data", null);
+        }
+
         try {
             long originalSize = Zstd.decompressedSize(data);
 
@@ -77,6 +81,12 @@ public class LogSerializer {
             if (originalSize < 0) {
                 throw new SerializationException(
                         "Invalid decompressed size: " + originalSize, null);
+            }
+
+            // 0 크기: 빈 압축 데이터
+            if (originalSize == 0) {
+                throw new SerializationException(
+                        "Decompressed size is zero: possibly corrupted or empty data", null);
             }
 
             // 크기 제한 검증 (메모리 고갈 방지)
