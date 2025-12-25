@@ -277,7 +277,12 @@ public class EnvelopeEncryption {
         cipher.init(Cipher.DECRYPT_MODE, kek, gcmSpec);
 
         byte[] dekBytes = cipher.doFinal(ciphertext);
-        return new SecretKeySpec(dekBytes, ALGORITHM);
+        try {
+            return new SecretKeySpec(dekBytes, ALGORITHM);
+        } finally {
+            // 보안: DEK 바이트 배열 제로화
+            java.util.Arrays.fill(dekBytes, (byte) 0);
+        }
     }
 
     /** DEK로 데이터 복호화. */

@@ -165,6 +165,11 @@ public class AnnotationMaskingProcessor {
             log.warn("Failed to create masked instance of {}, returning null. Error: {}",
                     clazz.getSimpleName(), e.getMessage());
             return null;
+        } catch (RuntimeException e) {
+            // InaccessibleObjectException (Java 9+ 모듈 시스템) 등 런타임 예외 처리
+            log.warn("Runtime error creating masked instance of {}, returning null. Error: {}",
+                    clazz.getSimpleName(), e.getMessage());
+            return null;
         }
     }
 

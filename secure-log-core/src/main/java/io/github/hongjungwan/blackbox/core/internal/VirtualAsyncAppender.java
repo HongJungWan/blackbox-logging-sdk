@@ -141,10 +141,11 @@ public class VirtualAsyncAppender extends UnsynchronizedAppenderBase<ILoggingEve
                     }
                 }
             } finally {
-                if (consumerBatchLatch.getCount() == 1) {
+                consumerBatchLatch.countDown();
+                // 모든 consumer가 완료되었을 때 consumerFinished 설정
+                if (consumerBatchLatch.getCount() == 0) {
                     consumerFinished.set(true);
                 }
-                consumerBatchLatch.countDown();
             }
         });
     }

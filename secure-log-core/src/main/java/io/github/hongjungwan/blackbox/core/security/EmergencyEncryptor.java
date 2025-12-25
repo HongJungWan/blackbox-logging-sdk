@@ -145,9 +145,39 @@ public class EmergencyEncryptor {
 
         /**
          * JSON 형식으로 변환.
+         * 특수문자 이스케이프 처리로 JSON 인젝션 방지.
          */
         public String toJson() {
-            return String.format("{\"display\":\"%s\",\"encrypted\":\"%s\"}", display, encrypted);
+            return String.format("{\"display\":\"%s\",\"encrypted\":\"%s\"}",
+                    escapeJson(display), escapeJson(encrypted));
+        }
+
+        /** JSON 문자열 이스케이프 처리 */
+        private static String escapeJson(String value) {
+            if (value == null) {
+                return "";
+            }
+            StringBuilder sb = new StringBuilder(value.length() + 16);
+            for (int i = 0; i < value.length(); i++) {
+                char c = value.charAt(i);
+                switch (c) {
+                    case '"' -> sb.append("\\\"");
+                    case '\\' -> sb.append("\\\\");
+                    case '\b' -> sb.append("\\b");
+                    case '\f' -> sb.append("\\f");
+                    case '\n' -> sb.append("\\n");
+                    case '\r' -> sb.append("\\r");
+                    case '\t' -> sb.append("\\t");
+                    default -> {
+                        if (c < 0x20) {
+                            sb.append(String.format("\\u%04x", (int) c));
+                        } else {
+                            sb.append(c);
+                        }
+                    }
+                }
+            }
+            return sb.toString();
         }
     }
 }
