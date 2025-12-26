@@ -60,12 +60,17 @@ public class AuditContextAspect {
         boolean success = true;
         Exception caughtException = null;
 
+        // 이전 AuditInfo 저장 (중첩 호출 지원)
+        AuditInfo previousAuditInfo = CONTEXT_HOLDER.get();
+        // LoggingContext Scope 저장 (중첩 호출 시 복원용)
+        LoggingContext.Scope loggingScope = null;
+
         try {
             // ThreadLocal에 문맥 저장
             CONTEXT_HOLDER.set(auditInfo);
 
-            // LoggingContext에 감사 정보 전파
-            propagateToLoggingContext(auditInfo);
+            // LoggingContext에 감사 정보 전파 (Scope 저장)
+            loggingScope = propagateToLoggingContext(auditInfo);
 
             return joinPoint.proceed();
 
@@ -82,7 +87,17 @@ public class AuditContextAspect {
                 logAuditEvent(auditInfo, success, duration, caughtException);
             }
 
-            CONTEXT_HOLDER.remove();
+            // LoggingContext Scope 복원 (이전 Context로 되돌림)
+            if (loggingScope != null) {
+                loggingScope.close();
+            }
+
+            // 이전 AuditInfo 복원 (중첩 호출 지원)
+            if (previousAuditInfo != null) {
+                CONTEXT_HOLDER.set(previousAuditInfo);
+            } else {
+                CONTEXT_HOLDER.remove();
+            }
         }
     }
 
@@ -221,7 +236,13 @@ public class AuditContextAspect {
         }
     }
 
-    private void propagateToLoggingContext(AuditInfo auditInfo) {
+    /**
+     * LoggingContext에 감사 정보 전파.
+     *
+     * @param auditInfo 감사 정보
+     * @return Scope - 호출자가 close()하여 이전 Context로 복원해야 함
+     */
+    private LoggingContext.Scope propagateToLoggingContext(AuditInfo auditInfo) {
         // LoggingContext는 불변이므로 새 Context를 빌드하여 ThreadLocal에 설정
         Map<String, Object> attributes = auditInfo.toAttributeMap();
         LoggingContext.Builder builder = LoggingContext.current().toBuilder();
@@ -232,7 +253,7 @@ public class AuditContextAspect {
             }
         }
 
-        builder.build().makeCurrent();
+        return builder.build().makeCurrent();
     }
 
     private void logAuditEvent(AuditInfo auditInfo, boolean success, long durationMs, Exception exception) {

@@ -57,7 +57,10 @@
       "Bash(cmd /c \"gradlew.bat build -x test\")",
       "Bash(export JAVA_HOME=\"/c/Program Files/Java/jdk-21\")",
       "Bash(export JAVA_HOME=\"/c/Program Files/Eclipse Adoptium/jdk-21.0.1.12-hotspot\")",
-      "Bash(export JAVA_HOME=\"/c/Users/Hong/.jdks/corretto-21.0.5\")"
+      "Bash(export JAVA_HOME=\"/c/Users/Hong/.jdks/corretto-21.0.5\")",
+      "Bash(dir /s /b \"C:\\\\Users\\\\Hong\\\\Desktop\\\\blackbox-logging-sdk\\\\secure-log-starter\\\\src\\\\main\\\\java\\\\io\\\\github\\\\hongjungwan\\\\blackbox\")",
+      "Bash(findstr:*)",
+      "Bash(dir /s /b \"C:\\\\Users\\\\Hong\\\\Desktop\\\\blackbox-logging-sdk\")"
     ],
     "deny": [],
     "ask": []
