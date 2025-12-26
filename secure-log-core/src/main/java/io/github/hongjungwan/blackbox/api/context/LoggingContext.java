@@ -149,9 +149,15 @@ public final class LoggingContext {
         return Optional.ofNullable((T) attributes.get(key));
     }
 
-    /** 랜덤 Span ID 생성 (16 hex chars) */
+    /** 랜덤 Span ID 생성 (16 hex chars). W3C Trace Context 표준 준수. */
     private static String generateSpanId() {
-        return Long.toHexString(java.util.concurrent.ThreadLocalRandom.current().nextLong());
+        long random = java.util.concurrent.ThreadLocalRandom.current().nextLong();
+        // 부호 없는 16진수로 변환 후 16자리로 패딩
+        String hex = Long.toHexString(random);
+        if (hex.length() < 16) {
+            return String.format("%16s", hex).replace(' ', '0');
+        }
+        return hex;
     }
 
     /** 랜덤 Trace ID 생성 (32 hex chars). 타임스탬프 포함으로 충돌 확률 최소화. */
